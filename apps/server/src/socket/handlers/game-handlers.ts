@@ -4,7 +4,7 @@ import type {
   ServerToClientEvents,
   InterServerEvents,
   SocketData,
-} from "@csechbox/shared-types";
+} from "@poker/shared-types";
 
 type IoServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type IoSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;

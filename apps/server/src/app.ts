@@ -1,8 +1,8 @@
-import express from "express";
+import express, { type Application } from "express";
 import cors from "cors";
 import { roomRouter } from "./routes/rooms.js";
 
-export const app = express();
+export const app: Application = express();
 
 app.use(cors({ origin: process.env["CLIENT_ORIGIN"] ?? "*" }));
 app.use(express.json());

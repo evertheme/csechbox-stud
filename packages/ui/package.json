@@ -1,5 +1,5 @@
 {
-  "name": "@csechbox/ui",
+  "name": "@poker/ui",
   "version": "0.0.1",
   "private": true,
   "main": "./src/index.ts",
@@ -13,10 +13,10 @@
     "clean": "rm -rf *.tsbuildinfo"
   },
   "dependencies": {
-    "@csechbox/shared-types": "workspace:*"
+    "@poker/shared-types": "workspace:*"
   },
   "devDependencies": {
-    "@csechbox/config": "workspace:*",
+    "@poker/config": "workspace:*",
     "@types/react": "^18.3.18",
     "react": "^18.3.1",
     "react-native": "^0.76.7",

@@ -1,6 +1,6 @@
 import React from "react";
 import { View, StyleSheet } from "react-native";
-import type { GameState } from "@csechbox/shared-types";
+import type { GameState } from "@poker/shared-types";
 import { Card } from "./Card";
 import { PlayerSeat } from "./PlayerSeat";
 import { ChipStack } from "./ChipStack";

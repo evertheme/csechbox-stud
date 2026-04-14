@@ -1,5 +1,5 @@
 {
-  "extends": "@csechbox/config/typescript/react-native",
+  "extends": "@poker/config/tsconfig/react-native",
   "compilerOptions": {
     "rootDir": ".",
     "noEmit": true,

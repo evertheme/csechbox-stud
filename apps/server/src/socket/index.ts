@@ -5,9 +5,10 @@ import type {
   ServerToClientEvents,
   InterServerEvents,
   SocketData,
-} from "@csechbox/shared-types";
+} from "@poker/shared-types";
 import { registerRoomHandlers } from "./handlers/room-handlers.js";
 import { registerGameHandlers } from "./handlers/game-handlers.js";
+import { logger } from "../lib/logger.js";
 
 export function createSocketServer(httpServer: HttpServer) {
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
@@ -25,13 +26,13 @@ export function createSocketServer(httpServer: HttpServer) {
     socket.data.playerId = socket.id;
     socket.data.username = username;
 
-    console.log(`[socket] Connected: ${socket.id} (${username})`);
+    logger.info(`🔌  Socket connected     ${socket.id}  (${username})`);
 
     registerRoomHandlers(io, socket);
     registerGameHandlers(io, socket);
 
     socket.on("disconnect", (reason) => {
-      console.log(`[socket] Disconnected: ${socket.id} (${reason})`);
+      logger.info(`🔌  Socket disconnected  ${socket.id}  (${reason})`);
     });
   });
 

@@ -1,6 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
-import type { PlayerPublic, Card as CardType } from "@csechbox/shared-types";
+import type { PlayerPublic, Card as CardType } from "@poker/shared-types";
 import { Card } from "./Card";
 import { ChipStack } from "./ChipStack";
 import { colors, borderRadius, spacing, typography } from "../theme";

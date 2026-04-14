@@ -1,4 +1,4 @@
-import type { GameRoom, GameSettings } from "@csechbox/shared-types";
+import type { GameRoom, GameSettings } from "@poker/shared-types";
 import { v4 as uuidv4 } from "uuid";
 
 const DEFAULT_SETTINGS: GameSettings = {

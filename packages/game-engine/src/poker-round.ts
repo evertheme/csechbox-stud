@@ -1,10 +1,10 @@
 import type {
-  Card,
   GamePhase,
   BettingAction,
   Player,
   Pot,
-} from "@csechbox/shared-types";
+} from "@poker/shared-types";
+import { Card } from "./card.js";
 import { Deck } from "./deck.js";
 import { HandEvaluator } from "./hand-evaluator.js";
 
@@ -19,7 +19,7 @@ export interface RoundPlayer extends Player {
 
 export interface RoundResult {
   winners: { playerId: string; amount: number }[];
-  playerHands: { playerId: string; description: string; score: number }[];
+  playerHands: { playerId: string; description: string; value: number }[];
 }
 
 export class PokerRound {
@@ -107,13 +107,13 @@ export class PokerRound {
 
   dealTurn(): void {
     this.phase = "turn";
-    this.communityCards.push(this.deck.dealOne());
+    this.communityCards.push(this.deck.deal());
     this.resetBets();
   }
 
   dealRiver(): void {
     this.phase = "river";
-    this.communityCards.push(this.deck.dealOne());
+    this.communityCards.push(this.deck.deal());
     this.resetBets();
   }
 
@@ -122,12 +122,12 @@ export class PokerRound {
     const activePlayers = this.players.filter((p) => p.status !== "folded");
     const playerHands = activePlayers.map((p) => {
       const result = this.evaluator.evaluate(p.holeCards, this.communityCards);
-      return { playerId: p.id, description: result.description, score: result.score };
+      return { playerId: p.id, description: result.description, value: result.value };
     });
 
-    playerHands.sort((a, b) => b.score - a.score);
-    const topScore = playerHands[0]!.score;
-    const winnerIds = playerHands.filter((h) => h.score === topScore).map((h) => h.playerId);
+    playerHands.sort((a, b) => b.value - a.value);
+    const topValue = playerHands[0]!.value;
+    const winnerIds = playerHands.filter((h) => h.value === topValue).map((h) => h.playerId);
     const totalPot = this.pots.reduce((s, p) => s + p.amount, 0);
     const splitAmount = Math.floor(totalPot / winnerIds.length);
 

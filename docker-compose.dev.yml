@@ -1,0 +1,19 @@
+# Development services — start with: docker compose -f docker-compose.dev.yml up -d
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: poker-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  redis-data:

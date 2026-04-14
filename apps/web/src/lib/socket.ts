@@ -2,7 +2,7 @@ import { io, type Socket } from "socket.io-client";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
-} from "@csechbox/shared-types";
+} from "@poker/shared-types";
 
 let socket: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
 

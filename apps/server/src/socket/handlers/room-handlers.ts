@@ -4,7 +4,7 @@ import type {
   ServerToClientEvents,
   InterServerEvents,
   SocketData,
-} from "@csechbox/shared-types";
+} from "@poker/shared-types";
 import { roomStore } from "../../store/room-store.js";
 
 type IoServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -58,6 +58,6 @@ export function registerRoomHandlers(io: IoServer, socket: IoSocket) {
       roomStore.updateRoom(roomId, { playerCount: Math.max(0, room.playerCount - 1) });
     }
     io.to(roomId).emit("game:player-left", socket.data.playerId);
-    socket.data.roomId = undefined;
+    delete socket.data.roomId;
   });
 }

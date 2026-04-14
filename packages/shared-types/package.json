@@ -1,5 +1,5 @@
 {
-  "name": "@csechbox/shared-types",
+  "name": "@poker/shared-types",
   "version": "0.0.1",
   "private": true,
   "main": "./dist/index.js",
@@ -19,7 +19,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "devDependencies": {
-    "@csechbox/config": "workspace:*",
+    "@poker/config": "workspace:*",
     "typescript": "^5.7.3"
   }
 }

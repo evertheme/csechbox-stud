@@ -56,10 +56,10 @@ pnpm build
 pnpm dev
 
 # Run only the server
-pnpm --filter @csechbox/server dev
+pnpm --filter @poker/server dev
 
 # Run only the web app
-pnpm --filter @csechbox/web dev
+pnpm --filter @poker/web dev
 
 # Run tests
 pnpm test

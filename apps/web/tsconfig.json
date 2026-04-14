@@ -1,15 +1,29 @@
 {
-  "extends": "@csechbox/config/typescript/nextjs",
+  "extends": "@poker/config/tsconfig/nextjs",
   "compilerOptions": {
     "rootDir": ".",
     "paths": {
-      "@/*": ["./src/*"]
-    }
+      "@/*": [
+        "./src/*"
+      ]
+    },
+    "noEmit": true,
+    "isolatedModules": true
   },
   "references": [
-    { "path": "../../packages/shared-types" },
-    { "path": "../../packages/ui" }
+    {
+      "path": "../../packages/shared-types"
+    },
+    {
+      "path": "../../packages/ui"
+    }
   ],
-  "include": ["next-env.d.ts", "src/**/*", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "next-env.d.ts",
+    "src/**/*",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

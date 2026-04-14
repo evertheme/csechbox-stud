@@ -1,6 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
-import type { Card as CardType } from "@csechbox/shared-types";
+import type { Card as CardType } from "@poker/shared-types";
 import { colors, borderRadius, typography } from "../theme";
 
 interface CardProps {

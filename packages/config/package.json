@@ -1,8 +1,12 @@
 {
-  "name": "@csechbox/config",
+  "name": "@poker/config",
   "version": "0.0.1",
   "private": true,
   "exports": {
+    "./tsconfig.json": "./tsconfig.json",
+    "./tsconfig/nextjs": "./typescript/nextjs.json",
+    "./tsconfig/react-native": "./typescript/react-native.json",
+    "./tsconfig/node": "./typescript/node.json",
     "./eslint/base": "./eslint/base.js",
     "./eslint/next": "./eslint/next.js",
     "./eslint/react-native": "./eslint/react-native.js",

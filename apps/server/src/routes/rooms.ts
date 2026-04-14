@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { roomStore } from "../store/room-store.js";
 
-export const roomRouter = Router();
+export const roomRouter: Router = Router();
 
 roomRouter.get("/", (_req, res) => {
   res.json(roomStore.listRooms());

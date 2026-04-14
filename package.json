@@ -7,7 +7,10 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "type-check": "turbo run type-check",
-    "clean": "turbo run clean && rm -rf node_modules"
+    "clean": "turbo run clean && rm -rf node_modules",
+    "services:up": "docker compose -f docker-compose.dev.yml up -d",
+    "services:down": "docker compose -f docker-compose.dev.yml down",
+    "services:logs": "docker compose -f docker-compose.dev.yml logs -f"
   },
   "devDependencies": {
     "turbo": "^2.3.3",

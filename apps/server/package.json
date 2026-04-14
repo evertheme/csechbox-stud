@@ -1,5 +1,5 @@
 {
-  "name": "@csechbox/server",
+  "name": "@poker/server",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -14,15 +14,19 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@csechbox/game-engine": "workspace:*",
-    "@csechbox/shared-types": "workspace:*",
+    "@poker/game-engine": "workspace:*",
+    "@poker/shared-types": "workspace:*",
+    "@supabase/supabase-js": "^2.103.0",
+    "chalk": "^5.6.2",
     "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
     "express": "^4.21.2",
+    "ioredis": "^5.10.1",
     "socket.io": "^4.8.1",
     "uuid": "^11.0.5"
   },
   "devDependencies": {
-    "@csechbox/config": "workspace:*",
+    "@poker/config": "workspace:*",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.14",

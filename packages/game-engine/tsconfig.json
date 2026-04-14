@@ -1,12 +1,13 @@
 {
-  "extends": "@csechbox/config/typescript/base",
+  "extends": "@poker/config/tsconfig.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    // composite/incremental are for tsc project references; tsup handles
+    // bundling and DTS generation itself, so these must be off.
+    "composite": false,
+    "incremental": false
   },
-  "references": [
-    { "path": "../shared-types" }
-  ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

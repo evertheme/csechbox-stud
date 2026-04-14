@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
-import type { ClientToServerEvents, ServerToClientEvents } from "@csechbox/shared-types";
+import type { ClientToServerEvents, ServerToClientEvents } from "@poker/shared-types";
 
 const SERVER_URL = process.env["EXPO_PUBLIC_SERVER_URL"] ?? "http://localhost:3001";
 

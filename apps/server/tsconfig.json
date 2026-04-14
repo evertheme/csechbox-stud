@@ -1,5 +1,5 @@
 {
-  "extends": "@csechbox/config/typescript/node",
+  "extends": "@poker/config/tsconfig/node",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist"
