@@ -1,0 +1,33 @@
+{
+  "name": "@csechbox/web",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev --port 3000",
+    "start": "next start",
+    "type-check": "tsc --noEmit",
+    "lint": "next lint",
+    "clean": "rm -rf .next out *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@csechbox/shared-types": "workspace:*",
+    "@csechbox/ui": "workspace:*",
+    "next": "^15.1.6",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-native": "^0.76.7",
+    "react-native-web": "^0.19.13",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@babel/preset-react": "^7.26.3",
+    "@csechbox/config": "workspace:*",
+    "@types/node": "^22.13.1",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "babel-loader": "^9.2.1",
+    "babel-plugin-react-native-web": "^0.19.13",
+    "typescript": "^5.7.3"
+  }
+}

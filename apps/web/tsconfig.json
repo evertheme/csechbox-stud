@@ -1,0 +1,15 @@
+{
+  "extends": "@csechbox/config/typescript/nextjs",
+  "compilerOptions": {
+    "rootDir": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "references": [
+    { "path": "../../packages/shared-types" },
+    { "path": "../../packages/ui" }
+  ],
+  "include": ["next-env.d.ts", "src/**/*", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}

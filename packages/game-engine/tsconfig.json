@@ -1,0 +1,12 @@
+{
+  "extends": "@csechbox/config/typescript/base",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "references": [
+    { "path": "../shared-types" }
+  ],
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

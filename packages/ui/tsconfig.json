@@ -1,0 +1,12 @@
+{
+  "extends": "@csechbox/config/typescript/react-native",
+  "compilerOptions": {
+    "rootDir": "src",
+    "noEmit": true
+  },
+  "references": [
+    { "path": "../shared-types" }
+  ],
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}

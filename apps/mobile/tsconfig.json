@@ -1,0 +1,16 @@
+{
+  "extends": "@csechbox/config/typescript/react-native",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "references": [
+    { "path": "../../packages/shared-types" },
+    { "path": "../../packages/ui" }
+  ],
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
+  "exclude": ["node_modules"]
+}

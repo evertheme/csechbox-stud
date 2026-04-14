@@ -1,0 +1,35 @@
+{
+  "name": "@csechbox/mobile",
+  "version": "0.0.1",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint app/ components/ hooks/",
+    "clean": "rm -rf .expo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@csechbox/shared-types": "workspace:*",
+    "@csechbox/ui": "workspace:*",
+    "@expo/vector-icons": "^14.0.4",
+    "expo": "~52.0.28",
+    "expo-router": "~4.0.17",
+    "expo-status-bar": "~2.0.1",
+    "react": "18.3.1",
+    "react-native": "0.76.7",
+    "react-native-safe-area-context": "^4.12.0",
+    "react-native-screens": "~4.4.0",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.0",
+    "@csechbox/config": "workspace:*",
+    "@types/react": "~18.3.12",
+    "babel-preset-expo": "~12.0.9",
+    "typescript": "^5.7.3"
+  }
+}
