@@ -1,19 +1,24 @@
+/**
+ * Entry route — decides where to send the user.
+ *
+ * By the time this renders, the root layout has already called
+ * useAuthStore.initialize() and will suppress this screen entirely while
+ * isLoading is true (showing SplashScreen instead of <Slot />).
+ *
+ * The null return below is a safety fallback for the brief instant between
+ * Expo Router rendering the route and the layout's splash kicking in.
+ */
+
 import { Redirect } from "expo-router";
-import { useAuth } from "../context/AuthContext";
-import { View, ActivityIndicator } from "react-native";
+import { useAuthStore } from "../store/auth-store";
 
 export default function Index() {
-  const { session, isLoading } = useAuth();
+  const { isAuthenticated, isLoading } = useAuthStore();
 
-  if (isLoading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: "#1a1a2e", alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator color="#ffd700" size="large" />
-      </View>
-    );
-  }
+  // Splash is shown by the root layout; render nothing here during load.
+  if (isLoading) return null;
 
-  return session ? (
+  return isAuthenticated ? (
     <Redirect href="/(app)/lobby" />
   ) : (
     <Redirect href="/(auth)" />
