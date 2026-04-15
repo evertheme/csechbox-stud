@@ -15,4 +15,8 @@ config.resolver.nodeModulesPaths = [
   path.resolve(monorepoRoot, "node_modules"),
 ];
 
+// Use package.json "exports" field to resolve web-specific code paths,
+// preventing native-only modules (e.g. worklets) from leaking import.meta into web bundles.
+config.resolver.unstable_enablePackageExports = true;
+
 module.exports = config;
