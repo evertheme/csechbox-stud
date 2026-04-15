@@ -62,3 +62,56 @@ export interface CreateRoomPayload {
   maxPlayers: number;
   buyIn: number;
 }
+
+// ─── Game room (waiting room) ─────────────────────────────────────────────────
+
+/** A single player occupying a seat in the waiting room */
+export interface RoomPlayer {
+  userId: string;
+  username: string;
+  chips: number;
+  isReady: boolean;
+  /** 0-based seat index */
+  seatIndex: number;
+}
+
+/** Full snapshot of a game room's state, delivered by the "room-state" event */
+export interface RoomState {
+  roomId: string;
+  /** Game-type identifier (matches GameVariant.id) or a display label from the server */
+  gameType: string;
+  /** Formatted stake string, e.g. "$1/$2" */
+  stakes: string;
+  maxPlayers: number;
+  /** userId of the room creator / current host */
+  hostId: string;
+  players: RoomPlayer[];
+}
+
+// ─── Game room socket event payloads ─────────────────────────────────────────
+
+/** Server → client: a player joined a seat */
+export interface PlayerJoinedPayload {
+  player: RoomPlayer;
+}
+
+/** Server → client: a player left */
+export interface PlayerLeftPayload {
+  userId: string;
+}
+
+/** Server → client: a player's ready status changed */
+export interface PlayerReadyPayload {
+  userId: string;
+  isReady: boolean;
+}
+
+/** Server → client: host ownership was transferred */
+export interface HostChangedPayload {
+  hostId: string;
+}
+
+/** Server → client: the game has started; navigate to the gameplay screen */
+export interface GameStartedPayload {
+  roomId: string;
+}
