@@ -11,8 +11,8 @@ import {
   View,
 } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
-import * as SecureStore from "expo-secure-store";
 import { router } from "expo-router";
+import * as secureStorage from "../../lib/secure-storage";
 import { useAuth } from "../../context/AuthContext";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -66,7 +66,7 @@ export default function SignInScreen() {
         setBiometricType("fingerprint");
       }
 
-      const stored = await SecureStore.getItemAsync(BIOMETRIC_EMAIL_KEY);
+      const stored = await secureStorage.getItem(BIOMETRIC_EMAIL_KEY);
       setHasStoredCreds(!!stored);
     }
     checkBiometrics();
@@ -91,8 +91,8 @@ export default function SignInScreen() {
     }
 
     if (rememberMe) {
-      await SecureStore.setItemAsync(BIOMETRIC_EMAIL_KEY, email.trim());
-      await SecureStore.setItemAsync(BIOMETRIC_PASSWORD_KEY, password);
+      await secureStorage.setItem(BIOMETRIC_EMAIL_KEY, email.trim());
+      await secureStorage.setItem(BIOMETRIC_PASSWORD_KEY, password);
       setHasStoredCreds(true);
     }
   };
@@ -109,10 +109,8 @@ export default function SignInScreen() {
       });
 
       if (result.success) {
-        const storedEmail = await SecureStore.getItemAsync(BIOMETRIC_EMAIL_KEY);
-        const storedPassword = await SecureStore.getItemAsync(
-          BIOMETRIC_PASSWORD_KEY
-        );
+        const storedEmail = await secureStorage.getItem(BIOMETRIC_EMAIL_KEY);
+        const storedPassword = await secureStorage.getItem(BIOMETRIC_PASSWORD_KEY);
         if (storedEmail && storedPassword) {
           const { error } = await signIn(storedEmail, storedPassword);
           if (error) {

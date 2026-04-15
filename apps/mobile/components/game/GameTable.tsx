@@ -19,7 +19,7 @@
  */
 
 import React, { useMemo } from "react";
-import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { PlayerSeat } from "./PlayerSeat";
 import type { Card } from "../../types/poker";
 
@@ -165,11 +165,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 6,
+    ...Platform.select({
+      web:     { boxShadow: "0 4px 8px rgba(0,0,0,0.35)" },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.35,
+        shadowRadius: 8,
+        elevation: 6,
+      },
+    }),
   },
   potLabel: {
     fontSize: 16,

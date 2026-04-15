@@ -6,6 +6,7 @@ import {
   Pressable,
   Animated,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -218,18 +219,28 @@ const styles = StyleSheet.create({
   logo: {
     fontSize: 96,
     color: "#ffd700",
-    textShadowColor: "rgba(0,0,0,0.5)",
-    textShadowOffset: { width: 2, height: 4 },
-    textShadowRadius: 8,
+    ...Platform.select({
+      web:     { textShadow: "2px 4px 8px rgba(0,0,0,0.5)" },
+      default: {
+        textShadowColor: "rgba(0,0,0,0.5)",
+        textShadowOffset: { width: 2, height: 4 },
+        textShadowRadius: 8,
+      },
+    }),
   },
   title: {
     fontSize: 38,
     fontWeight: "800",
     color: "#ffd700",
     letterSpacing: 1,
-    textShadowColor: "rgba(0,0,0,0.4)",
-    textShadowOffset: { width: 1, height: 2 },
-    textShadowRadius: 4,
+    ...Platform.select({
+      web:     { textShadow: "1px 2px 4px rgba(0,0,0,0.4)" },
+      default: {
+        textShadowColor: "rgba(0,0,0,0.4)",
+        textShadowOffset: { width: 1, height: 2 },
+        textShadowRadius: 4,
+      },
+    }),
   },
   tagline: {
     fontSize: 15,
@@ -263,11 +274,16 @@ const styles = StyleSheet.create({
     paddingVertical: 17,
     borderRadius: 12,
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
+    ...Platform.select({
+      web:     { boxShadow: "0 3px 6px rgba(0,0,0,0.3)" },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.3,
+        shadowRadius: 6,
+        elevation: 4,
+      },
+    }),
   },
   btnPrimary: {
     backgroundColor: "#ffd700",
@@ -325,11 +341,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     borderLeftWidth: 3,
     borderLeftColor: "#ef4444",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 8,
+    ...Platform.select({
+      web:     { boxShadow: "0 4px 8px rgba(0,0,0,0.4)" },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
+        elevation: 8,
+      },
+    }),
   },
   toastText: {
     color: "#fca5a5",

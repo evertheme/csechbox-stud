@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import type { Card, Suit } from "../../types/poker";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -84,11 +84,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.18,
-    shadowRadius: 2,
-    elevation: 2,
+    ...Platform.select({
+      web:     { boxShadow: "0 1px 2px rgba(0,0,0,0.18)" },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.18,
+        shadowRadius: 2,
+        elevation: 2,
+      },
+    }),
   },
   cardBack: {
     backgroundColor: "#1e3a5f",
