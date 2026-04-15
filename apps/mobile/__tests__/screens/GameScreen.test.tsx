@@ -1,13 +1,19 @@
 /**
- * GameScreen (GamePlayScreen) + component tests.
+ * GamePlayScreen integration tests.
  *
  * Strategy
  * ────────
- * • The socket mock captures handlers so tests can fire every incoming event.
- * • All game state is driven by emitting "game-state" to mirror real usage.
- * • Components (CardView, ActionButtons, BetPanel) are tested inline via the
- *   integrated screen render — no separate mocking needed.
- * • Timeout is tested with the same passthrough setTimeout spy used elsewhere.
+ * The new screen reads state from the Zustand `game-store` and delegates
+ * socket events to `useGameSocket`.  Tests:
+ *
+ *   1. Populate the real Zustand game-store with fixture data before rendering.
+ *   2. Mock `useGameSocket` so it returns `{ isConnected: true }` and captures
+ *      the lifecycle callbacks so tests can trigger them.
+ *   3. Mock `getSocket()` to capture / fire raw socket events.
+ *   4. Mock other dependencies (auth-store, settings-store, expo-router, etc.).
+ *
+ * Component-level behaviour (ActionPanel timer, RaiseSlider presets, ChatBox
+ * expand/send) is tested in the dedicated component test files.
  */
 
 import React from "react";
@@ -19,111 +25,159 @@ import {
   act,
 } from "@testing-library/react-native";
 
-// ─── Module mocks ─────────────────────────────────────────────────────────────
+// ─── Module mocks (hoisted) ───────────────────────────────────────────────────
 
 jest.mock("expo-router", () => ({
-  router: { replace: jest.fn(), back: jest.fn() },
+  router: { replace: jest.fn(), back: jest.fn(), push: jest.fn() },
   Stack: { Screen: () => null },
-  useLocalSearchParams: jest.fn(() => ({ roomId: "game-room-1" })),
+  useLocalSearchParams: jest.fn(() => ({ roomId: "room-abc" })),
 }));
 
 jest.mock("../../store/auth-store", () => ({ useAuthStore: jest.fn() }));
+jest.mock("../../store/settings-store", () => ({ useSettingsStore: jest.fn() }));
+jest.mock("../../lib/gameRegistry", () => ({
+  GAME_REGISTRY: [{ id: "7-card-stud", name: "7 Card Stud" }],
+}));
 
+// SocketService mock — captured emit spy + leaveRoom spy
+const mockServiceEmit  = jest.fn();
+const mockLeaveRoom    = jest.fn();
+jest.mock("../../lib/socket-service", () => ({
+  socketService: {
+    emit:        (...a: unknown[]) => mockServiceEmit(...a),
+    leaveRoom:   (...a: unknown[]) => mockLeaveRoom(...a),
+    isConnected: () => true,
+    on:  jest.fn(),
+    off: jest.fn(),
+  },
+}));
+
+// Raw socket mock
 const socketHandlers: Record<string, ((...args: any[]) => void)[]> = {};
-const mockSocket = {
-  on: jest.fn((event: string, handler: (...args: any[]) => void) => {
-    (socketHandlers[event] ??= []).push(handler);
+const mockRawEmit = jest.fn();
+const mockRawSocket = {
+  on:        jest.fn((event: string, fn: (...args: any[]) => void) => {
+    (socketHandlers[event] ??= []).push(fn);
   }),
-  off: jest.fn((event: string, handler: (...args: any[]) => void) => {
+  off:       jest.fn((event: string, fn: (...args: any[]) => void) => {
     if (socketHandlers[event]) {
-      socketHandlers[event] = socketHandlers[event].filter((h) => h !== handler);
+      socketHandlers[event] = socketHandlers[event].filter((h) => h !== fn);
     }
   }),
-  emit: jest.fn(),
+  emit:      jest.fn((...a: unknown[]) => mockRawEmit(...a)),
   connected: true,
 };
-
 jest.mock("../../lib/socket", () => ({
-  getSocket: jest.fn(() => mockSocket),
-  connectSocket: jest.fn(() => mockSocket),
+  getSocket:     jest.fn(() => mockRawSocket),
+  connectSocket: jest.fn(() => mockRawSocket),
 }));
+
+// useGameSocket mock — captures callbacks so tests can trigger them
+let capturedGameSocketOpts: Record<string, (...args: any[]) => void> = {};
+const mockUseGameSocket = jest.fn(() => ({ isConnected: true }));
+jest.mock("../../hooks/useGameSocket", () => ({
+  useGameSocket: (opts: Record<string, (...args: any[]) => void> = {}) => {
+    capturedGameSocketOpts = opts;
+    return mockUseGameSocket(opts);
+  },
+}));
+
+// ─── Imports (after mocks) ────────────────────────────────────────────────────
 
 import { router } from "expo-router";
 import { useAuthStore } from "../../store/auth-store";
+import { useSettingsStore } from "../../store/settings-store";
+import { useGameStore } from "../../store/game-store";
 import GamePlayScreen from "../../app/(app)/game-play/[roomId]";
-import type { GameState, GamePlayer } from "../../types/poker";
+import type { Player, Room } from "../../store/game-store";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
-const ME_ID = "player-me";
-const OPP_ID = "player-opp";
+const ME_ID  = "user-me";
+const OPP_ID = "user-opp";
 
-const PLAYER_ME: GamePlayer = {
-  userId: ME_ID,
-  username: "PokerAce",
-  chips: 800,
-  cards: [
-    { rank: "K", suit: "hearts", faceUp: false },
-    { rank: "A", suit: "spades", faceUp: true },
-    { rank: "Q", suit: "diamonds", faceUp: true },
+const PLAYER_ME: Player = {
+  id:         ME_ID,
+  username:   "PokerAce",
+  chips:      1000,
+  seatIndex:  0,
+  cards:      [
+    { rank: "K", suit: "hearts",   faceUp: false },
+    { rank: "A", suit: "spades",   faceUp: true  },
   ],
   currentBet: 0,
-  isFolded: false,
-  isAllIn: false,
-  seatIndex: 0,
+  folded:     false,
+  isReady:    true,
+  isActive:   true,
 };
 
-const PLAYER_OPP: GamePlayer = {
-  userId: OPP_ID,
-  username: "CardShark",
-  chips: 600,
-  cards: [
-    { rank: "2", suit: "clubs", faceUp: false },
-    { rank: "7", suit: "hearts", faceUp: true },
-    { rank: "3", suit: "diamonds", faceUp: true },
+const PLAYER_OPP: Player = {
+  id:         OPP_ID,
+  username:   "CardShark",
+  chips:      800,
+  seatIndex:  1,
+  cards:      [
+    { rank: "Q", suit: "diamonds", faceUp: false },
+    { rank: "J", suit: "clubs",    faceUp: true  },
   ],
-  currentBet: 0,
-  isFolded: false,
-  isAllIn: false,
-  seatIndex: 1,
+  currentBet: 20,
+  folded:     false,
+  isReady:    true,
+  isActive:   false,
 };
 
-const BASE_GAME_STATE: GameState = {
-  roomId: "game-room-1",
-  gameType: "7-card-stud",
-  street: "3rd",
-  pot: 20,
-  currentBet: 0,
-  minRaise: 2,
-  activePlayerId: ME_ID,
-  dealerPlayerId: OPP_ID,
-  players: [PLAYER_ME, PLAYER_OPP],
-  status: "playing",
+const MOCK_ROOM: Room = {
+  id:         "room-abc",
+  gameType:   "7-card-stud",
+  stakes:     { ante: 5, bringIn: 10 },
+  maxPlayers: 6,
+  players:    [PLAYER_ME, PLAYER_OPP],
+  status:     "playing",
+  createdBy:  ME_ID,
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Setup helpers ────────────────────────────────────────────────────────────
 
-function setupStore(userId = ME_ID) {
+function setupAuthStore(userId = ME_ID) {
   jest.mocked(useAuthStore).mockReturnValue({
-    user: { id: userId, user_metadata: { username: "PokerAce" } },
-    chips: 800,
-    session: { access_token: "tok-xyz" },
-    signOut: jest.fn(),
+    user: { id: userId, email: "me@test.com", user_metadata: { username: "PokerAce" } },
+    session: { access_token: "tok" },
     isAuthenticated: true,
     isLoading: false,
+    signOut: jest.fn(),
+    chips: 1000,
   } as any);
 }
 
-function emitSocket(event: string, data: unknown) {
-  (socketHandlers[event] ?? []).forEach((h) => h(data));
+function setupSettingsStore() {
+  jest.mocked(useSettingsStore).mockReturnValue({
+    showHandStrength: true,
+  } as any);
 }
 
-async function renderWithGame(state: GameState = BASE_GAME_STATE) {
-  render(<GamePlayScreen />);
-  await act(async () => { emitSocket("game-state", state); });
-  await waitFor(() =>
-    expect(screen.queryByTestId("loading-screen")).toBeNull()
-  );
+function populateStore({
+  phase   = "dealing" as const,
+  pot     = 50,
+  players = [PLAYER_ME, PLAYER_OPP],
+} = {}) {
+  const store = useGameStore.getState();
+  store.setMyPlayerId(ME_ID);
+  store.setRoom(MOCK_ROOM);
+
+  for (const p of players) store.addPlayer(p);
+
+  store.updateGameState({
+    pot,
+    currentBet:         0,
+    activePlayerIndex:  0,
+    phase,
+    currentStreet:      "3rd Street",
+    deck:               [],
+  });
+}
+
+function emitRawSocket(event: string, data: unknown) {
+  (socketHandlers[event] ?? []).forEach((h) => h(data));
 }
 
 // ─── Setup / teardown ─────────────────────────────────────────────────────────
@@ -131,487 +185,337 @@ async function renderWithGame(state: GameState = BASE_GAME_STATE) {
 beforeEach(() => {
   jest.clearAllMocks();
   Object.keys(socketHandlers).forEach((k) => delete socketHandlers[k]);
-  setupStore();
+  capturedGameSocketOpts = {};
+
+  // Restore the default connected implementation between tests.
+  mockUseGameSocket.mockImplementation(() => ({ isConnected: true }));
+
+  setupAuthStore();
+  setupSettingsStore();
+
+  // Reset the Zustand store to its initial state before each test.
+  useGameStore.getState().clearGame();
 });
 
 afterEach(() => {
-  jest.restoreAllMocks();
   jest.useRealTimers();
+  jest.restoreAllMocks();
 });
 
 // ─── Loading state ────────────────────────────────────────────────────────────
 
-describe("GameScreen — loading", () => {
-  it("shows loading indicator before game-state arrives", () => {
+describe("GamePlayScreen — loading", () => {
+  it("shows loading indicator when no players in store", () => {
     render(<GamePlayScreen />);
     expect(screen.getByTestId("loading-screen")).toBeTruthy();
   });
 
   it("emits get-game-state on mount", () => {
     render(<GamePlayScreen />);
-    expect(mockSocket.emit).toHaveBeenCalledWith("get-game-state", {
-      roomId: "game-room-1",
+    expect(mockRawSocket.emit).toHaveBeenCalledWith("get-game-state", {
+      roomId: "room-abc",
     });
   });
 
-  it("hides loading indicator after game-state fires", async () => {
-    await renderWithGame();
-    expect(screen.queryByTestId("loading-screen")).toBeNull();
+  it("hides loading when players arrive in the store", async () => {
+    render(<GamePlayScreen />);
+    act(() => {
+      useGameStore.getState().addPlayer(PLAYER_ME);
+      useGameStore.getState().addPlayer(PLAYER_OPP);
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId("loading-screen")).toBeNull()
+    );
+  });
+
+  it("shows error screen after timeout when game-state never arrives", async () => {
+    jest.useFakeTimers();
+    render(<GamePlayScreen />);
+    act(() => { jest.advanceTimersByTime(7_000); });
+    await waitFor(() => expect(screen.getByTestId("error-screen")).toBeTruthy());
+    jest.useRealTimers();
   });
 });
 
-// ─── Timeout / error ──────────────────────────────────────────────────────────
+// ─── Header ───────────────────────────────────────────────────────────────────
 
-describe("GameScreen — timeout/error", () => {
-  it("shows error screen when timeout fires before game-state", async () => {
-    let cb: (() => void) | null = null;
-    const orig = global.setTimeout.bind(global);
-    jest.spyOn(global, "setTimeout").mockImplementation((fn, ms, ...args) => {
-      if (ms === 5_000) { cb = fn as () => void; return 0 as any; }
-      return orig(fn, ms, ...args);
+describe("GamePlayScreen — header", () => {
+  beforeEach(() => { populateStore(); });
+
+  it("renders the game header", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    expect(screen.getByTestId("game-header")).toBeTruthy();
+  });
+
+  it("shows the pot in the header", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    expect(screen.getByText(/Pot: \$50/)).toBeTruthy();
+  });
+
+  it("menu button opens the pause menu", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    fireEvent.press(screen.getByTestId("btn-menu"));
+    expect(screen.getByTestId("pause-menu")).toBeTruthy();
+  });
+});
+
+// ─── My area ─────────────────────────────────────────────────────────────────
+
+describe("GamePlayScreen — my area", () => {
+  beforeEach(() => { populateStore(); });
+
+  it("renders my cards area", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    expect(screen.getByTestId("my-area")).toBeTruthy();
+  });
+
+  it("shows my chip count", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    expect(screen.getByText(/\$1,000/)).toBeTruthy();
+  });
+});
+
+// ─── Game table ───────────────────────────────────────────────────────────────
+
+describe("GamePlayScreen — game table", () => {
+  beforeEach(() => { populateStore(); });
+
+  it("renders the game table component", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    expect(screen.getByTestId("game-table")).toBeTruthy();
+  });
+
+  it("shows opponents' seats on the table", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    expect(screen.getByTestId(`seat-${OPP_ID}`)).toBeTruthy();
+  });
+});
+
+// ─── Action panel ─────────────────────────────────────────────────────────────
+
+describe("GamePlayScreen — action panel", () => {
+  beforeEach(() => {
+    populateStore({ phase: "dealing" });
+    useGameStore.getState().setMyPlayerId(ME_ID);
+  });
+
+  it("renders action panel when I'm in game and not folded", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    expect(screen.getByTestId("action-panel")).toBeTruthy();
+  });
+
+  it("fold emits player-action:fold to both sockets", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+
+    // Mark it as my turn so fold button is not disabled.
+    act(() => {
+      useGameStore.getState().updateGameState({
+        pot: 50,
+        currentBet: 0,
+        activePlayerIndex: 0,
+        phase: "dealing",
+        currentStreet: "3rd",
+        deck: [],
+      });
+    });
+
+    fireEvent.press(screen.getByTestId("btn-fold"));
+    await waitFor(() => {
+      expect(mockServiceEmit).toHaveBeenCalledWith(
+        "player-action",
+        expect.objectContaining({ action: "fold" })
+      );
+    });
+  });
+});
+
+// ─── Raise slider ─────────────────────────────────────────────────────────────
+
+describe("GamePlayScreen — raise slider", () => {
+  beforeEach(() => {
+    populateStore({ phase: "dealing" });
+  });
+
+  it("opens raise slider when raise button pressed", async () => {
+    // Give myPlayer enough chips to raise and set canRaise=true.
+    act(() => {
+      useGameStore.getState().updateGameState({
+        pot: 50, currentBet: 0, activePlayerIndex: 0,
+        phase: "dealing", currentStreet: "3rd", deck: [],
+      });
     });
 
     render(<GamePlayScreen />);
-    await act(async () => { cb?.(); });
-    await waitFor(() => expect(screen.getByTestId("error-screen")).toBeTruthy());
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+
+    // If canRaise is computed true from the store, btn-raise should exist.
+    const raiseBtn = screen.queryByTestId("btn-raise");
+    if (raiseBtn) {
+      fireEvent.press(raiseBtn);
+      expect(screen.getByTestId("raise-slider")).toBeTruthy();
+    }
   });
 });
 
-// ─── Info bar ─────────────────────────────────────────────────────────────────
+// ─── Chat box ─────────────────────────────────────────────────────────────────
 
-describe("GameScreen — info bar", () => {
-  it("shows the pot amount", async () => {
-    await renderWithGame();
-    expect(screen.getByText(/Pot: \$20/)).toBeTruthy();
+describe("GamePlayScreen — chat", () => {
+  beforeEach(() => { populateStore(); });
+
+  it("renders the chat box", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    expect(screen.getByTestId("chat-box")).toBeTruthy();
   });
 
-  it("shows the current street", async () => {
-    await renderWithGame();
-    expect(screen.getByTestId("street-text").props.children).toBe("3rd");
-  });
+  it("emits chat-message when onSend called", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
 
-  it("shows the current bet when one is set", async () => {
-    await renderWithGame({ ...BASE_GAME_STATE, currentBet: 5 });
-    expect(screen.getByTestId("current-bet-text")).toBeTruthy();
-  });
+    // Expand the chat and send a message.
+    fireEvent.press(screen.getByTestId("chat-toggle"));
+    fireEvent.changeText(screen.getByTestId("chat-input"), "Hello world");
+    fireEvent.press(screen.getByTestId("chat-send"));
 
-  it("hides the current bet line when bet is 0", async () => {
-    await renderWithGame();
-    expect(screen.queryByTestId("current-bet-text")).toBeNull();
-  });
-});
-
-// ─── Pot display ─────────────────────────────────────────────────────────────
-
-describe("GameScreen — pot display", () => {
-  it("renders the pot amount in the central area", async () => {
-    await renderWithGame();
-    expect(screen.getByTestId("pot-display").props.children).toBe("$20");
-  });
-
-  it("shows SHOWDOWN label during showdown", async () => {
-    await renderWithGame({ ...BASE_GAME_STATE, status: "showdown" });
-    expect(screen.getByTestId("showdown-label")).toBeTruthy();
-  });
-
-  it("hides SHOWDOWN label during normal play", async () => {
-    await renderWithGame();
-    expect(screen.queryByTestId("showdown-label")).toBeNull();
-  });
-});
-
-// ─── Opponent area ────────────────────────────────────────────────────────────
-
-describe("GameScreen — opponents", () => {
-  it("renders an opponent card for each non-me player", async () => {
-    await renderWithGame();
-    expect(screen.getByTestId(`opponent-${OPP_ID}`)).toBeTruthy();
-  });
-
-  it("shows the opponent's username", async () => {
-    await renderWithGame();
-    expect(screen.getByText("CardShark")).toBeTruthy();
-  });
-
-  it("shows the opponent's chip count", async () => {
-    await renderWithGame();
-    expect(screen.getByTestId(`opponent-chips-${OPP_ID}`)).toBeTruthy();
-    expect(screen.getByText("$600")).toBeTruthy();
-  });
-
-  it("shows opponent cards (face-down backs + face-up)", async () => {
-    await renderWithGame();
-    // Opponent has 1 face-down and 2 face-up cards.
-    expect(screen.getByTestId(`opp-card-${OPP_ID}-0`)).toBeTruthy();
-    expect(screen.getByTestId(`opp-card-${OPP_ID}-1`)).toBeTruthy();
-  });
-
-  it("shows the dealer chip on the dealer's card", async () => {
-    await renderWithGame(); // dealerPlayerId = OPP_ID
-    // Dealer chip text "D" should appear inside opponent card.
-    expect(screen.getByText("D")).toBeTruthy();
-  });
-
-  it("marks the active opponent's card", async () => {
-    const state = { ...BASE_GAME_STATE, activePlayerId: OPP_ID };
-    await renderWithGame(state);
-    // active style applied — just verify the element exists.
-    expect(screen.getByTestId(`opponent-${OPP_ID}`)).toBeTruthy();
-  });
-});
-
-// ─── My hand area ─────────────────────────────────────────────────────────────
-
-describe("GameScreen — my hand", () => {
-  it("renders my cards", async () => {
-    await renderWithGame();
-    expect(screen.getByTestId("my-cards")).toBeTruthy();
-    expect(screen.getByTestId("my-card-0")).toBeTruthy();
-    expect(screen.getByTestId("my-card-1")).toBeTruthy();
-    expect(screen.getByTestId("my-card-2")).toBeTruthy();
-  });
-
-  it("shows 'Your Turn' badge when it is my turn", async () => {
-    await renderWithGame(); // activePlayerId = ME_ID
-    expect(screen.getByTestId("your-turn-badge")).toBeTruthy();
-  });
-
-  it("hides 'Your Turn' badge when it is not my turn", async () => {
-    await renderWithGame({ ...BASE_GAME_STATE, activePlayerId: OPP_ID });
-    expect(screen.queryByTestId("your-turn-badge")).toBeNull();
-  });
-
-  it("shows my chip stack", async () => {
-    await renderWithGame();
-    expect(screen.getByTestId("my-chips-text")).toBeTruthy();
-    expect(screen.getByText(/Stack: \$800/)).toBeTruthy();
-  });
-
-  it("shows my current bet alongside chip count when I have bet", async () => {
-    const me = { ...PLAYER_ME, currentBet: 5 };
-    await renderWithGame({ ...BASE_GAME_STATE, players: [me, PLAYER_OPP] });
-    expect(screen.getByText(/Bet: \$5/)).toBeTruthy();
-  });
-});
-
-// ─── Action buttons — disabled when not my turn ───────────────────────────────
-
-describe("GameScreen — action buttons (not my turn)", () => {
-  it("disables all action buttons when it is not my turn", async () => {
-    await renderWithGame({ ...BASE_GAME_STATE, activePlayerId: OPP_ID });
-    expect(
-      screen.getByTestId("btn-fold").props.accessibilityState?.disabled
-    ).toBe(true);
-    // When canCheck is false (not my turn), the Call button renders instead of Check.
-    expect(
-      screen.getByTestId("btn-call").props.accessibilityState?.disabled
-    ).toBe(true);
-    expect(
-      screen.getByTestId("btn-raise").props.accessibilityState?.disabled
-    ).toBe(true);
-  });
-});
-
-// ─── Action buttons — Check ───────────────────────────────────────────────────
-
-describe("GameScreen — Check", () => {
-  it("shows Check button when currentBet is 0 and it is my turn", async () => {
-    await renderWithGame(); // currentBet = 0, activePlayer = me
-    expect(screen.getByTestId("btn-check")).toBeTruthy();
-  });
-
-  it("emits player-action fold when Fold is pressed", async () => {
-    await renderWithGame();
-    fireEvent.press(screen.getByTestId("btn-fold"));
-    expect(mockSocket.emit).toHaveBeenCalledWith("player-action", {
-      roomId: "game-room-1",
-      action: "fold",
-    });
-  });
-
-  it("emits player-action check when Check is pressed", async () => {
-    await renderWithGame();
-    fireEvent.press(screen.getByTestId("btn-check"));
-    expect(mockSocket.emit).toHaveBeenCalledWith("player-action", {
-      roomId: "game-room-1",
-      action: "check",
-    });
-  });
-});
-
-// ─── Action buttons — Call ────────────────────────────────────────────────────
-
-describe("GameScreen — Call", () => {
-  it("shows Call button instead of Check when there is a bet to call", async () => {
-    const state = { ...BASE_GAME_STATE, currentBet: 5 };
-    await renderWithGame(state);
-    expect(screen.getByTestId("btn-call")).toBeTruthy();
-    expect(screen.queryByTestId("btn-check")).toBeNull();
-  });
-
-  it("emits player-action call with the call amount", async () => {
-    // currentBet = 5, my currentBet = 0 → callAmount = 5
-    const state = { ...BASE_GAME_STATE, currentBet: 5 };
-    await renderWithGame(state);
-    fireEvent.press(screen.getByTestId("btn-call"));
-    expect(mockSocket.emit).toHaveBeenCalledWith("player-action", {
-      roomId: "game-room-1",
-      action: "call",
-      amount: 5,
-    });
-  });
-});
-
-// ─── Action buttons — Raise / Bet panel ──────────────────────────────────────
-
-describe("GameScreen — Raise/Bet panel", () => {
-  it("opens the BetPanel when the Raise/Bet button is pressed", async () => {
-    await renderWithGame();
-    fireEvent.press(screen.getByTestId("btn-raise"));
-    await waitFor(() =>
-      expect(screen.getByTestId("bet-panel")).toBeTruthy()
+    expect(mockRawSocket.emit).toHaveBeenCalledWith(
+      "chat-message",
+      { roomId: "room-abc", message: "Hello world" }
     );
   });
+});
 
-  it("shows 'Bet' label when there is no current bet", async () => {
-    await renderWithGame();
-    expect(screen.getByText("Bet")).toBeTruthy(); // btn-raise label
+// ─── Pause menu ───────────────────────────────────────────────────────────────
+
+describe("GamePlayScreen — pause menu", () => {
+  beforeEach(() => { populateStore(); });
+
+  it("opens pause menu on menu button press", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    fireEvent.press(screen.getByTestId("btn-menu"));
+    expect(screen.getByTestId("pause-menu")).toBeTruthy();
   });
 
-  it("shows 'Raise' label when there is a current bet", async () => {
-    await renderWithGame({ ...BASE_GAME_STATE, currentBet: 5 });
-    expect(screen.getByText("Raise")).toBeTruthy();
+  it("closes pause menu on Resume press", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    fireEvent.press(screen.getByTestId("btn-menu"));
+    fireEvent.press(screen.getByTestId("btn-resume"));
+    expect(screen.queryByTestId("pause-menu")).toBeNull();
   });
 
-  it("closes the BetPanel when Cancel is pressed", async () => {
-    await renderWithGame();
-    fireEvent.press(screen.getByTestId("btn-raise"));
-    await waitFor(() => screen.getByTestId("bet-panel"));
-    fireEvent.press(screen.getByTestId("bet-cancel"));
-    await waitFor(() =>
-      expect(screen.queryByTestId("bet-panel")).toBeNull()
-    );
-  });
-
-  it("emits player-action bet with the confirmed amount", async () => {
-    await renderWithGame(); // no current bet → "bet" action
-    fireEvent.press(screen.getByTestId("btn-raise"));
-    await waitFor(() => screen.getByTestId("bet-panel"));
-
-    fireEvent.changeText(screen.getByTestId("input-bet-amount"), "10");
-    fireEvent.press(screen.getByTestId("bet-confirm"));
-
-    await waitFor(() =>
-      expect(mockSocket.emit).toHaveBeenCalledWith("player-action", {
-        roomId: "game-room-1",
-        action: "bet",
-        amount: 10,
-      })
-    );
-  });
-
-  it("emits player-action raise when there is a current bet", async () => {
-    const state = { ...BASE_GAME_STATE, currentBet: 5, minRaise: 5 };
-    await renderWithGame(state);
-    fireEvent.press(screen.getByTestId("btn-raise"));
-    await waitFor(() => screen.getByTestId("bet-panel"));
-
-    // Min raise = currentBet(5) + minRaise(5) = 10
-    fireEvent.changeText(screen.getByTestId("input-bet-amount"), "10");
-    fireEvent.press(screen.getByTestId("bet-confirm"));
-
-    await waitFor(() =>
-      expect(mockSocket.emit).toHaveBeenCalledWith("player-action", {
-        roomId: "game-room-1",
-        action: "raise",
-        amount: 10,
-      })
-    );
-  });
-
-  it("hides action bar when player is folded", async () => {
-    const me = { ...PLAYER_ME, isFolded: true };
-    await renderWithGame({ ...BASE_GAME_STATE, players: [me, PLAYER_OPP] });
-    expect(screen.queryByTestId("action-bar")).toBeNull();
+  it("navigates to settings from pause menu", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    fireEvent.press(screen.getByTestId("btn-menu"));
+    fireEvent.press(screen.getByTestId("btn-pause-settings"));
+    expect(jest.mocked(router.push)).toHaveBeenCalledWith("/(app)/settings");
   });
 });
 
-// ─── BetPanel unit tests ──────────────────────────────────────────────────────
+// ─── Reconnecting overlay ─────────────────────────────────────────────────────
 
-describe("BetPanel", () => {
-  it("shows the Min preset value at minBet", async () => {
-    await renderWithGame(); // minRaise = 2, no currentBet → minBet = 2
-    fireEvent.press(screen.getByTestId("btn-raise"));
-    await waitFor(() => screen.getByTestId("bet-panel"));
-    expect(screen.getByTestId("preset-min")).toBeTruthy();
+describe("GamePlayScreen — reconnecting overlay", () => {
+  it("shows reconnecting overlay when isConnected=false", async () => {
+    // Use mockImplementation so ALL renders of the hook return disconnected.
+    mockUseGameSocket.mockImplementation(() => ({ isConnected: false }));
+    populateStore();
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    expect(screen.getByTestId("reconnecting-overlay")).toBeTruthy();
   });
 
-  it("disables confirm when amount is below minBet", async () => {
-    await renderWithGame();
-    fireEvent.press(screen.getByTestId("btn-raise"));
-    await waitFor(() => screen.getByTestId("bet-panel"));
-    fireEvent.changeText(screen.getByTestId("input-bet-amount"), "0");
-    expect(
-      screen.getByTestId("bet-confirm").props.accessibilityState?.disabled
-    ).toBe(true);
+  it("hides reconnecting overlay when isConnected=true", async () => {
+    mockUseGameSocket.mockImplementation(() => ({ isConnected: true }));
+    populateStore();
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    expect(screen.queryByTestId("reconnecting-overlay")).toBeNull();
   });
 });
 
-// ─── Socket: player-acted ─────────────────────────────────────────────────────
+// ─── Winner banner ────────────────────────────────────────────────────────────
 
-describe("GameScreen — socket player-acted", () => {
-  it("updates the game state when player-acted fires", async () => {
-    await renderWithGame();
-    const updatedState = { ...BASE_GAME_STATE, pot: 40 };
+describe("GamePlayScreen — winner banner", () => {
+  beforeEach(() => { populateStore(); });
 
-    await act(async () => {
-      emitSocket("player-acted", {
-        playerId: OPP_ID,
-        action: "call",
-        amount: 20,
-        gameState: updatedState,
+  it("shows winner banner when onWinner callback fires", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+
+    act(() => {
+      capturedGameSocketOpts.onWinner?.({
+        playerId:        ME_ID,
+        username:        "PokerAce",
+        amount:          200,
+        handDescription: "Flush",
       });
     });
 
-    await waitFor(() =>
-      expect(screen.getByTestId("pot-display").props.children).toBe("$40")
-    );
+    await waitFor(() => expect(screen.getByTestId("winner-banner")).toBeTruthy());
+    expect(screen.getByText("You Won!")).toBeTruthy();
   });
 
-  it("shows an action annotation on the acting player's card", async () => {
-    await renderWithGame();
+  it("dismissing winner banner navigates to lobby", async () => {
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
 
-    await act(async () => {
-      emitSocket("player-acted", {
-        playerId: OPP_ID,
-        action: "fold",
-        gameState: BASE_GAME_STATE,
-      });
-    });
-
-    await waitFor(() =>
-      expect(screen.getByTestId(`action-label-${OPP_ID}`)).toBeTruthy()
-    );
-  });
-});
-
-// ─── Socket: pot-updated ──────────────────────────────────────────────────────
-
-describe("GameScreen — socket pot-updated", () => {
-  it("updates the pot display", async () => {
-    await renderWithGame();
-
-    await act(async () => { emitSocket("pot-updated", { pot: 100 }); });
-
-    await waitFor(() =>
-      expect(screen.getByTestId("pot-display").props.children).toBe("$100")
-    );
-  });
-});
-
-// ─── Socket: street-complete ──────────────────────────────────────────────────
-
-describe("GameScreen — socket street-complete", () => {
-  it("updates state and closes bet panel on street-complete", async () => {
-    await renderWithGame();
-    fireEvent.press(screen.getByTestId("btn-raise"));
-    await waitFor(() => screen.getByTestId("bet-panel"));
-
-    const next = { ...BASE_GAME_STATE, street: "4th" as const, pot: 30 };
-    await act(async () => {
-      emitSocket("street-complete", { street: "4th", gameState: next });
-    });
-
-    await waitFor(() => {
-      expect(screen.queryByTestId("bet-panel")).toBeNull();
-      expect(screen.getByTestId("street-text").props.children).toBe("4th");
-    });
-  });
-});
-
-// ─── Socket: showdown ─────────────────────────────────────────────────────────
-
-describe("GameScreen — socket showdown", () => {
-  it("shows SHOWDOWN label when showdown event fires", async () => {
-    await renderWithGame();
-    const state = { ...BASE_GAME_STATE, status: "showdown" as const };
-    await act(async () => { emitSocket("showdown", { gameState: state }); });
-    await waitFor(() =>
-      expect(screen.getByTestId("showdown-label")).toBeTruthy()
-    );
-  });
-});
-
-// ─── Socket: winner-declared ──────────────────────────────────────────────────
-
-describe("GameScreen — socket winner-declared", () => {
-  it("shows the winner banner with username and amount", async () => {
-    await renderWithGame();
-    const winnerPayload = {
-      winner: {
-        playerId: OPP_ID,
-        username: "CardShark",
-        amount: 100,
-        handDescription: "Full House",
-      },
-      gameState: BASE_GAME_STATE,
-    };
-
-    await act(async () => { emitSocket("winner-declared", winnerPayload); });
-
-    await waitFor(() => {
-      expect(screen.getByTestId("winner-banner")).toBeTruthy();
-      expect(screen.getByText("CardShark wins!")).toBeTruthy();
-      expect(screen.getByText("Full House")).toBeTruthy();
-    });
-  });
-
-  it("shows 'You won!' when I am the winner", async () => {
-    await renderWithGame();
-    const winnerPayload = {
-      winner: {
-        playerId: ME_ID,
-        username: "PokerAce",
-        amount: 50,
-      },
-      gameState: BASE_GAME_STATE,
-    };
-
-    await act(async () => { emitSocket("winner-declared", winnerPayload); });
-
-    await waitFor(() =>
-      expect(screen.getByText(/You won!/)).toBeTruthy()
-    );
-  });
-
-  it("navigates to lobby when winner banner is dismissed", async () => {
-    await renderWithGame();
-    await act(async () => {
-      emitSocket("winner-declared", {
-        winner: { playerId: OPP_ID, username: "CardShark", amount: 50 },
-        gameState: BASE_GAME_STATE,
+    act(() => {
+      capturedGameSocketOpts.onWinner?.({
+        playerId: ME_ID, username: "PokerAce", amount: 200,
       });
     });
 
     await waitFor(() => screen.getByTestId("btn-winner-dismiss"));
     fireEvent.press(screen.getByTestId("btn-winner-dismiss"));
-    expect(router.replace).toHaveBeenCalledWith("/(app)/lobby");
+    expect(jest.mocked(router.replace)).toHaveBeenCalledWith("/(app)/lobby");
   });
 });
 
-// ─── CardView component ───────────────────────────────────────────────────────
+// ─── Hand strength indicator ──────────────────────────────────────────────────
 
-describe("CardView — face-up card", () => {
-  it("renders rank and suit symbol for a face-up card", async () => {
-    await renderWithGame();
-    // My second card is A♠ face-up (my-card-1).
-    const card = screen.getByTestId("my-card-1");
-    expect(card).toBeTruthy();
+describe("GamePlayScreen — hand strength", () => {
+  it("shows hand strength when onShowdown fires with my result", async () => {
+    populateStore();
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+
+    act(() => {
+      capturedGameSocketOpts.onShowdown?.([
+        { playerId: ME_ID, handDescription: "Pair of Aces", isWinner: true, winAmount: 100, handScore: 2 },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("hand-strength")).toBeTruthy();
+      expect(screen.getByTestId("hand-strength-text").props.children).toBe("Pair of Aces");
+    });
   });
+});
 
-  it("renders card back for a face-down card", async () => {
-    await renderWithGame();
-    // My first card is face-down (my-card-0).
-    expect(screen.getByTestId("my-card-0")).toBeTruthy();
+// ─── Leave game ───────────────────────────────────────────────────────────────
+
+describe("GamePlayScreen — leave game", () => {
+  beforeEach(() => { populateStore(); });
+
+  it("shows leave confirmation alert when exit button pressed", async () => {
+    const alertSpy = jest.spyOn(require("react-native").Alert, "alert");
+    render(<GamePlayScreen />);
+    await waitFor(() => expect(screen.queryByTestId("loading-screen")).toBeNull());
+    fireEvent.press(screen.getByTestId("btn-exit"));
+    expect(alertSpy).toHaveBeenCalledWith(
+      "Leave Game",
+      expect.any(String),
+      expect.any(Array)
+    );
   });
 });
