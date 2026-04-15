@@ -58,9 +58,16 @@ export interface RoomCreatedPayload {
 /** Payload the client emits on the "create-room" event */
 export interface CreateRoomPayload {
   gameType: string;
-  stakes: Stakes;
   maxPlayers: number;
-  buyIn: number;
+  startingBuyIn: number;
+  minRebuy: number;
+  maxRebuy: number;
+  /** Fixed at $1/$2 for all games. */
+  stakes: { ante: 1; bringIn: 2 };
+  allowRebuys: true;
+  /** 2 minutes — fixed. */
+  rebuyTimeoutSeconds: 120;
+  endConditions: { manualEnd: true; onePlayerRemains: true };
 }
 
 // ─── Game room (waiting room) ─────────────────────────────────────────────────

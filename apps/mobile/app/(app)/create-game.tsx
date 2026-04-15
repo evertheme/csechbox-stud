@@ -11,29 +11,40 @@ import {
   View,
 } from "react-native";
 import { router, Stack } from "expo-router";
-import { useAuthStore } from "../../store/auth-store";
 import { getSocket } from "../../lib/socket";
-import { GAME_REGISTRY, STAKES_PRESETS } from "../../lib/gameRegistry";
-import type { StakesPreset } from "../../types/game";
+import { GAME_REGISTRY } from "../../lib/gameRegistry";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const MAX_PLAYERS_OPTIONS = [2, 3, 4, 5, 6, 7, 8] as const;
-const DEFAULT_MAX_PLAYERS = 6;
-const DEFAULT_PRESET_IDX = 1; // $1/$2
-const BUY_IN_DEFAULT_MULT = 100;
-const BUY_IN_MIN_MULT = 20;
+const FIXED_STAKES = { ante: 1, bringIn: 2 } as const;
+const REBUY_TIMEOUT_SECONDS = 120 as const;
 const ROOM_CREATE_TIMEOUT_MS = 10_000;
+
+const BUY_IN_PRESETS = [500, 1_000, 2_500, 5_000] as const;
+const BUY_IN_DEFAULT = 1_000;
+const BUY_IN_MIN = 100;
+const BUY_IN_MAX = 10_000;
+
+const DEFAULT_MAX_PLAYERS = 6;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function defaultBuyIn(bringIn: number, chips: number): number {
-  return Math.min(Math.round(BUY_IN_DEFAULT_MULT * bringIn), chips);
+/** 5-card variants seat up to 5 players; all 7-card variants seat up to 7. */
+function playerLimitForVariant(gameTypeId: string): number {
+  return gameTypeId.startsWith("5-card") ? 5 : 7;
+}
+
+function playerOptions(limit: number): number[] {
+  return Array.from({ length: limit - 1 }, (_, i) => i + 2); // [2, 3, …, limit]
+}
+
+function formatChips(n: number): string {
+  return `$${n.toLocaleString("en-US")}`;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function SectionLabel({ children }: { children: string }) {
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return <Text style={styles.sectionLabel}>{children}</Text>;
 }
 
@@ -45,101 +56,102 @@ function Card({ children, testID }: { children: React.ReactNode; testID?: string
   );
 }
 
+function InfoRow({
+  label,
+  value,
+  dim,
+  testID,
+}: {
+  label: string;
+  value: string;
+  dim?: boolean;
+  testID?: string;
+}) {
+  return (
+    <View style={styles.infoRow}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={[styles.infoValue, dim && styles.infoValueDim]} testID={testID}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 // ─── CreateGameScreen ─────────────────────────────────────────────────────────
 
 export default function CreateGameScreen() {
-  const { chips } = useAuthStore();
-
   // ── Form state ─────────────────────────────────────────────────────────────
 
-  const [gameTypeId, setGameTypeId] = useState(GAME_REGISTRY[0].id);
+  const [gameTypeId, setGameTypeId] = useState(GAME_REGISTRY[0]!.id);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const [stakesMode, setStakesMode] = useState<"preset" | "custom">("preset");
-  const [presetIdx, setPresetIdx] = useState(DEFAULT_PRESET_IDX);
-  const [customAnte, setCustomAnte] = useState("");
-  const [customBringIn, setCustomBringIn] = useState("");
-
   const [maxPlayers, setMaxPlayers] = useState(DEFAULT_MAX_PLAYERS);
-
-  const [buyIn, setBuyIn] = useState(() =>
-    String(defaultBuyIn(STAKES_PRESETS[DEFAULT_PRESET_IDX].bringIn, chips))
-  );
-
+  const [buyInPreset, setBuyInPreset] = useState<number | "custom">(BUY_IN_DEFAULT);
+  const [customBuyIn, setCustomBuyIn] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // ── Effective stakes (derived) ─────────────────────────────────────────────
+  // ── Derived values ─────────────────────────────────────────────────────────
 
-  const effectiveStakes: StakesPreset =
-    stakesMode === "preset"
-      ? STAKES_PRESETS[presetIdx]
-      : {
-          label: "Custom",
-          ante: parseFloat(customAnte) || 0,
-          bringIn: parseFloat(customBringIn) || 0,
-        };
+  const playerLimit = playerLimitForVariant(gameTypeId);
+  const startingBuyIn = buyInPreset === "custom"
+    ? parseFloat(customBuyIn) || 0
+    : buyInPreset;
+  const minRebuy = Math.round(startingBuyIn * 0.5);
+  const maxRebuy = Math.round(startingBuyIn * 2);
+  const selectedVariant = GAME_REGISTRY.find((v) => v.id === gameTypeId);
 
-  const minBuyIn = BUY_IN_MIN_MULT * effectiveStakes.bringIn;
+  // ── Clamp maxPlayers when game type changes ────────────────────────────────
 
-  // ── Stake selection ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (maxPlayers > playerLimit) setMaxPlayers(playerLimit);
+  }, [gameTypeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const applyPreset = useCallback(
-    (idx: number) => {
-      setStakesMode("preset");
-      setPresetIdx(idx);
-      const newBuyIn = defaultBuyIn(STAKES_PRESETS[idx].bringIn, chips);
-      if (newBuyIn > 0) setBuyIn(String(newBuyIn));
-    },
-    [chips]
-  );
+  // ── Socket event listeners ─────────────────────────────────────────────────
 
-  const applyCustom = () => {
-    setStakesMode("custom");
-    // Don't auto-update buy-in yet; user hasn't finished entering custom stakes.
-  };
+  useEffect(() => {
+    const socket = getSocket();
 
-  // Recalculate buy-in when custom bring-in is committed (on blur).
-  const handleCustomBringInBlur = () => {
-    const bi = parseFloat(customBringIn);
-    if (!isNaN(bi) && bi > 0) {
-      const newBuyIn = defaultBuyIn(bi, chips);
-      if (newBuyIn > 0) setBuyIn(String(newBuyIn));
-    }
-  };
+    const onRoomCreated = ({ roomId }: { roomId: string }) => {
+      clearTimeout(timeoutRef.current);
+      setSubmitting(false);
+      router.replace(`/(app)/game/${roomId}`);
+    };
+
+    const onCreateError = ({ message }: { message?: string }) => {
+      clearTimeout(timeoutRef.current);
+      setSubmitting(false);
+      setError(message ?? "Failed to create room. Please try again.");
+    };
+
+    socket.on("room-created", onRoomCreated);
+    socket.on("create-room-error", onCreateError);
+
+    return () => {
+      socket.off("room-created", onRoomCreated);
+      socket.off("create-room-error", onCreateError);
+      clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   // ── Validation ─────────────────────────────────────────────────────────────
 
   const validate = (): string | null => {
-    if (stakesMode === "custom") {
-      const ante = parseFloat(customAnte);
-      const bi = parseFloat(customBringIn);
-      if (isNaN(ante) || ante <= 0) return "Ante must be a positive number.";
-      if (isNaN(bi) || bi <= 0) return "Bring-in must be a positive number.";
-      if (bi <= ante) return "Bring-in must be greater than the ante.";
+    if (buyInPreset === "custom") {
+      const v = parseFloat(customBuyIn);
+      if (isNaN(v) || v <= 0) return "Please enter a valid buy-in amount.";
     }
-
-    const buyInNum = parseFloat(buyIn);
-    if (isNaN(buyInNum) || buyInNum <= 0) return "Buy-in must be a positive number.";
-    if (effectiveStakes.bringIn > 0 && buyInNum < minBuyIn)
-      return `Minimum buy-in for these stakes is $${minBuyIn.toFixed(2)}.`;
-    if (buyInNum > chips)
-      return `You only have $${chips.toLocaleString()} in chips.`;
-
+    if (startingBuyIn < BUY_IN_MIN)
+      return `Minimum buy-in is ${formatChips(BUY_IN_MIN)}.`;
+    if (startingBuyIn > BUY_IN_MAX)
+      return `Maximum buy-in is ${formatChips(BUY_IN_MAX)}.`;
     return null;
   };
 
-  // ── Cleanup on unmount ─────────────────────────────────────────────────────
-
-  useEffect(() => {
-    return () => clearTimeout(timeoutRef.current);
-  }, []);
-
   // ── Submit ─────────────────────────────────────────────────────────────────
 
-  const handleCreate = () => {
+  const handleCreate = useCallback(() => {
     const validationError = validate();
     if (validationError) {
       setError(validationError);
@@ -149,26 +161,23 @@ export default function CreateGameScreen() {
     setError(null);
     setSubmitting(true);
 
-    const gameVariant = GAME_REGISTRY.find((g) => g.id === gameTypeId);
-    const roomName = `${gameVariant?.name ?? gameTypeId} · ${effectiveStakes.label}`;
-
     timeoutRef.current = setTimeout(() => {
       setSubmitting(false);
       setError("Server did not respond. Please try again.");
     }, ROOM_CREATE_TIMEOUT_MS);
 
-    getSocket().emit("room:create", {
-      name: roomName,
+    getSocket().emit("create-room", {
+      gameType: gameTypeId,
       maxPlayers,
-      smallBlind: effectiveStakes.ante,
-      bigBlind:   effectiveStakes.bringIn,
-      minBuyIn:   parseFloat(buyIn),
-    }, (room) => {
-      clearTimeout(timeoutRef.current);
-      setSubmitting(false);
-      router.replace(`/(app)/game/${room.id}`);
+      startingBuyIn,
+      minRebuy,
+      maxRebuy,
+      stakes: FIXED_STAKES,
+      allowRebuys: true,
+      rebuyTimeoutSeconds: REBUY_TIMEOUT_SECONDS,
+      endConditions: { manualEnd: true, onePlayerRemains: true },
     });
-  };
+  }, [gameTypeId, maxPlayers, startingBuyIn, minRebuy, maxRebuy]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -177,17 +186,15 @@ export default function CreateGameScreen() {
       style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <Stack.Screen
-        options={{ title: "Create Game", headerBackTitle: "Lobby" }}
-      />
+      <Stack.Screen options={{ title: "Create Game", headerBackTitle: "Lobby" }} />
 
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
-        {/* ── Game Type ───────────────────────────────────────────────────── */}
-        <SectionLabel>Game Type</SectionLabel>
+        {/* ── Game Variant ─────────────────────────────────────────────────── */}
+        <SectionLabel>Game Variant</SectionLabel>
         <Card testID="game-type-card">
           {GAME_REGISTRY.map((variant, i) => {
             const selected = gameTypeId === variant.id;
@@ -201,16 +208,11 @@ export default function CreateGameScreen() {
                     onPress={() => setGameTypeId(variant.id)}
                     testID={`variant-${variant.id}`}
                   >
-                    <View
-                      style={[styles.radio, selected && styles.radioSelected]}
-                    >
+                    <View style={[styles.radio, selected && styles.radioSelected]}>
                       {selected && <View style={styles.radioDot} />}
                     </View>
                     <Text
-                      style={[
-                        styles.variantName,
-                        selected && styles.variantNameSelected,
-                      ]}
+                      style={[styles.variantName, selected && styles.variantNameSelected]}
                       testID={`variant-name-${variant.id}`}
                     >
                       {variant.name}
@@ -219,23 +221,16 @@ export default function CreateGameScreen() {
 
                   <Pressable
                     style={styles.infoBtn}
-                    onPress={() =>
-                      setExpandedId(expanded ? null : variant.id)
-                    }
+                    onPress={() => setExpandedId(expanded ? null : variant.id)}
                     testID={`info-btn-${variant.id}`}
                     hitSlop={10}
                   >
-                    <Text style={styles.infoBtnText}>
-                      {expanded ? "▲" : "▼"}
-                    </Text>
+                    <Text style={styles.infoBtnText}>{expanded ? "▲" : "▼"}</Text>
                   </Pressable>
                 </View>
 
                 {expanded && (
-                  <Text
-                    style={styles.variantDesc}
-                    testID={`desc-${variant.id}`}
-                  >
+                  <Text style={styles.variantDesc} testID={`desc-${variant.id}`}>
                     {variant.description}
                   </Text>
                 )}
@@ -244,85 +239,7 @@ export default function CreateGameScreen() {
           })}
         </Card>
 
-        {/* ── Stakes ──────────────────────────────────────────────────────── */}
-        <SectionLabel>Stakes</SectionLabel>
-        <View style={styles.stakesGrid} testID="stakes-grid">
-          {STAKES_PRESETS.map((preset, idx) => {
-            const active = stakesMode === "preset" && presetIdx === idx;
-            return (
-              <Pressable
-                key={preset.label}
-                style={[styles.stakeBtn, active && styles.stakeBtnActive]}
-                onPress={() => applyPreset(idx)}
-                testID={`stake-preset-${idx}`}
-              >
-                <Text
-                  style={[
-                    styles.stakeBtnText,
-                    active && styles.stakeBtnTextActive,
-                  ]}
-                >
-                  {preset.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-          <Pressable
-            style={[
-              styles.stakeBtn,
-              stakesMode === "custom" && styles.stakeBtnActive,
-            ]}
-            onPress={applyCustom}
-            testID="stake-custom"
-          >
-            <Text
-              style={[
-                styles.stakeBtnText,
-                stakesMode === "custom" && styles.stakeBtnTextActive,
-              ]}
-            >
-              Custom
-            </Text>
-          </Pressable>
-        </View>
-
-        {stakesMode === "custom" && (
-          <View style={styles.customRow} testID="custom-stakes-inputs">
-            <View style={styles.customField}>
-              <Text style={styles.inputLabel}>Ante ($)</Text>
-              <TextInput
-                style={styles.input}
-                value={customAnte}
-                onChangeText={(v) => {
-                  setCustomAnte(v);
-                  setError(null);
-                }}
-                placeholder="0.00"
-                placeholderTextColor="#4a5568"
-                keyboardType="decimal-pad"
-                testID="input-ante"
-              />
-            </View>
-            <View style={styles.customField}>
-              <Text style={styles.inputLabel}>Bring-in ($)</Text>
-              <TextInput
-                style={styles.input}
-                value={customBringIn}
-                onChangeText={(v) => {
-                  setCustomBringIn(v);
-                  setError(null);
-                }}
-                onBlur={handleCustomBringInBlur}
-                placeholder="0.00"
-                placeholderTextColor="#4a5568"
-                keyboardType="decimal-pad"
-                testID="input-bring-in"
-              />
-            </View>
-          </View>
-        )}
-
-        {/* ── Max Players ─────────────────────────────────────────────────── */}
+        {/* ── Max Players ──────────────────────────────────────────────────── */}
         <SectionLabel>
           {"Max Players  "}
           <Text style={styles.sectionValue} testID="max-players-value">
@@ -330,7 +247,7 @@ export default function CreateGameScreen() {
           </Text>
         </SectionLabel>
         <View style={styles.playersRow} testID="players-selector">
-          {MAX_PLAYERS_OPTIONS.map((n) => {
+          {playerOptions(playerLimit).map((n) => {
             const active = maxPlayers === n;
             return (
               <Pressable
@@ -339,49 +256,146 @@ export default function CreateGameScreen() {
                 onPress={() => setMaxPlayers(n)}
                 testID={`player-btn-${n}`}
               >
-                <Text
-                  style={[
-                    styles.playerBtnText,
-                    active && styles.playerBtnTextActive,
-                  ]}
-                >
+                <Text style={[styles.playerBtnText, active && styles.playerBtnTextActive]}>
                   {n}
                 </Text>
               </Pressable>
             );
           })}
         </View>
+        <Text style={styles.playerHint} testID="player-limit-hint">
+          {gameTypeId.startsWith("5-card") ? "5-card games: max 5 players" : "7-card games: max 7 players"}
+        </Text>
 
-        {/* ── Buy-in ──────────────────────────────────────────────────────── */}
-        <SectionLabel>Buy-in Amount</SectionLabel>
-        <Card>
-          <Text style={styles.buyInDollar}>$</Text>
-          <TextInput
-            style={styles.buyInInput}
-            value={buyIn}
-            onChangeText={(v) => {
-              setBuyIn(v);
+        {/* ── Starting Buy-in ───────────────────────────────────────────────── */}
+        <SectionLabel>Starting Buy-in</SectionLabel>
+        <Text style={styles.buyInSubtitle}>All players start with:</Text>
+        <Card testID="buy-in-card">
+          {BUY_IN_PRESETS.map((amount) => {
+            const active = buyInPreset === amount;
+            return (
+              <Pressable
+                key={amount}
+                style={styles.buyInOption}
+                onPress={() => {
+                  setBuyInPreset(amount);
+                  setError(null);
+                }}
+                testID={`buy-in-preset-${amount}`}
+              >
+                <View style={[styles.radio, active && styles.radioSelected]}>
+                  {active && <View style={styles.radioDot} />}
+                </View>
+                <Text style={[styles.buyInOptionText, active && styles.buyInOptionTextActive]}>
+                  {formatChips(amount)}
+                  {amount === BUY_IN_DEFAULT ? "  (recommended)" : ""}
+                </Text>
+              </Pressable>
+            );
+          })}
+
+          {/* Custom option */}
+          <Pressable
+            style={styles.buyInOption}
+            onPress={() => {
+              setBuyInPreset("custom");
               setError(null);
             }}
-            keyboardType="number-pad"
-            placeholder="0"
-            placeholderTextColor="#4a5568"
-            testID="input-buy-in"
-          />
-          <Text style={styles.buyInHint} testID="buy-in-hint">
-            Min: ${minBuyIn.toFixed(2)} · Available: $
-            {chips.toLocaleString()}
+            testID="buy-in-custom"
+          >
+            <View style={[styles.radio, buyInPreset === "custom" && styles.radioSelected]}>
+              {buyInPreset === "custom" && <View style={styles.radioDot} />}
+            </View>
+            <Text style={[styles.buyInOptionText, buyInPreset === "custom" && styles.buyInOptionTextActive]}>
+              Custom:{"  "}
+            </Text>
+            {buyInPreset === "custom" && (
+              <TextInput
+                style={styles.customBuyInInput}
+                value={customBuyIn}
+                onChangeText={(v) => {
+                  setCustomBuyIn(v);
+                  setError(null);
+                }}
+                keyboardType="number-pad"
+                placeholder="1000"
+                placeholderTextColor="#4a5568"
+                testID="input-custom-buy-in"
+              />
+            )}
+          </Pressable>
+
+          <Text style={styles.buyInRange} testID="buy-in-range">
+            Min: {formatChips(BUY_IN_MIN)} | Max: {formatChips(BUY_IN_MAX)}
           </Text>
         </Card>
 
-        {/* ── Error ───────────────────────────────────────────────────────── */}
-        {error ? (
+        {/* ── Stakes (read-only) ────────────────────────────────────────────── */}
+        <SectionLabel>Stakes</SectionLabel>
+        <Card testID="stakes-card">
+          <View style={styles.fixedRow}>
+            <Text style={styles.fixedValue} testID="stakes-display">$1 / $2</Text>
+            <Text style={styles.fixedHint}>Fixed for all games</Text>
+          </View>
+        </Card>
+
+        {/* ── Rebuy Settings (read-only) ────────────────────────────────────── */}
+        <SectionLabel>Rebuy Options</SectionLabel>
+        <Card testID="rebuy-card">
+          <InfoRow
+            label="Min rebuy"
+            value={startingBuyIn >= BUY_IN_MIN ? formatChips(minRebuy) : "—"}
+            testID="rebuy-min"
+          />
+          <View style={styles.infoRowDivider} />
+          <InfoRow
+            label="Max rebuy"
+            value={startingBuyIn >= BUY_IN_MIN ? formatChips(maxRebuy) : "—"}
+            testID="rebuy-max"
+          />
+          <View style={styles.infoRowDivider} />
+          <InfoRow label="Timeout" value="2 minutes" testID="rebuy-timeout" />
+          {startingBuyIn >= BUY_IN_MIN && (
+            <Text style={styles.rebuyNote} testID="rebuy-note">
+              {`Based on ${formatChips(startingBuyIn)} buy-in`}
+            </Text>
+          )}
+        </Card>
+
+        {/* ── Game Summary ──────────────────────────────────────────────────── */}
+        <SectionLabel>📋 Game Summary</SectionLabel>
+        <Card testID="summary-card">
+          <InfoRow label="Variant" value={selectedVariant?.name ?? "—"} testID="summary-variant" />
+          <View style={styles.infoRowDivider} />
+          <InfoRow label="Players" value={`2–${maxPlayers}`} testID="summary-players" />
+          <View style={styles.infoRowDivider} />
+          <InfoRow label="Stakes" value="$1/$2" testID="summary-stakes" />
+          <View style={styles.infoRowDivider} />
+          <InfoRow
+            label="Buy-in"
+            value={startingBuyIn >= BUY_IN_MIN ? formatChips(startingBuyIn) : "—"}
+            testID="summary-buy-in"
+          />
+          <View style={styles.infoRowDivider} />
+          <InfoRow
+            label="Rebuys"
+            value={startingBuyIn >= BUY_IN_MIN ? `${formatChips(minRebuy)}–${formatChips(maxRebuy)}` : "—"}
+            testID="summary-rebuys"
+          />
+          <View style={styles.summarySeparator} />
+          <Text style={styles.summaryEndTitle}>Game ends when:</Text>
+          <Text style={styles.summaryEndItem}>• You end it, OR</Text>
+          <Text style={styles.summaryEndItem}>• 1 player remains</Text>
+        </Card>
+
+        {/* ── Error ────────────────────────────────────────────────────────── */}
+        {error && (
           <Text style={styles.errorText} testID="error-message">
             {error}
           </Text>
-        ) : null}
+        )}
 
-        {/* ── Actions ─────────────────────────────────────────────────────── */}
+        {/* ── Actions ──────────────────────────────────────────────────────── */}
         <View style={styles.btnRow}>
           <Pressable
             style={styles.cancelBtn}
@@ -397,11 +411,7 @@ export default function CreateGameScreen() {
             testID="btn-create"
           >
             {submitting ? (
-              <ActivityIndicator
-                color="#0a3d14"
-                size="small"
-                testID="create-spinner"
-              />
+              <ActivityIndicator color="#0a3d14" size="small" testID="create-spinner" />
             ) : (
               <Text style={styles.createBtnText}>Create Game</Text>
             )}
@@ -430,13 +440,11 @@ const styles = StyleSheet.create({
   },
   sectionValue: { color: "#ffd700", textTransform: "none" },
 
-  // Card container
   card: {
     backgroundColor: "#16213e",
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#2d3a56",
-    padding: 4,
     overflow: "hidden",
   },
 
@@ -450,12 +458,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
   },
-  variantSelectArea: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    gap: 10,
-  },
+  variantSelectArea: { flexDirection: "row", alignItems: "center", flex: 1, gap: 10 },
   radio: {
     width: 18,
     height: 18,
@@ -466,12 +469,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   radioSelected: { borderColor: "#ffd700" },
-  radioDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#ffd700",
-  },
+  radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#ffd700" },
   variantName: { fontSize: 15, color: "#94a3b8", flex: 1 },
   variantNameSelected: { color: "#e2e8f0", fontWeight: "600" },
   infoBtn: { paddingHorizontal: 8, paddingVertical: 4 },
@@ -485,59 +483,8 @@ const styles = StyleSheet.create({
     paddingTop: 2,
   },
 
-  // Stakes grid
-  stakesGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  stakeBtn: {
-    flex: 1,
-    minWidth: "44%",
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: "#2d3a56",
-    backgroundColor: "#16213e",
-    alignItems: "center",
-  },
-  stakeBtnActive: {
-    borderColor: "#ffd700",
-    backgroundColor: "#1e2a14",
-  },
-  stakeBtnText: { color: "#94a3b8", fontSize: 14, fontWeight: "600" },
-  stakeBtnTextActive: { color: "#ffd700" },
-
-  // Custom stakes
-  customRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 4,
-  },
-  customField: { flex: 1, gap: 4 },
-  inputLabel: {
-    fontSize: 11,
-    color: "#94a3b8",
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
-  input: {
-    backgroundColor: "#16213e",
-    borderWidth: 1.5,
-    borderColor: "#2d3a56",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: "#e2e8f0",
-    fontSize: 15,
-  },
-
-  // Players selector
-  playersRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
+  // Players
+  playersRow: { flexDirection: "row", gap: 8 },
   playerBtn: {
     flex: 1,
     paddingVertical: 12,
@@ -547,33 +494,63 @@ const styles = StyleSheet.create({
     backgroundColor: "#16213e",
     alignItems: "center",
   },
-  playerBtnActive: {
-    borderColor: "#ffd700",
-    backgroundColor: "#1e2a14",
-  },
+  playerBtnActive: { borderColor: "#ffd700", backgroundColor: "#1e2a14" },
   playerBtnText: { color: "#94a3b8", fontSize: 14, fontWeight: "600" },
   playerBtnTextActive: { color: "#ffd700" },
+  playerHint: { fontSize: 11, color: "#4a5568", marginTop: 2 },
 
-  // Buy-in
-  buyInDollar: {
-    color: "#94a3b8",
-    fontSize: 20,
-    paddingLeft: 12,
-    paddingTop: 12,
+  // Buy-in options
+  buyInSubtitle: { fontSize: 12, color: "#64748b", marginBottom: 4 },
+  buyInOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1e2a3a",
   },
-  buyInInput: {
+  buyInOptionText: { fontSize: 15, color: "#94a3b8", flex: 1 },
+  buyInOptionTextActive: { color: "#e2e8f0", fontWeight: "600" },
+  customBuyInInput: {
+    flex: 1,
     color: "#e2e8f0",
-    fontSize: 28,
-    fontWeight: "700",
-    paddingHorizontal: 12,
-    paddingBottom: 4,
+    fontSize: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#ffd700",
+    paddingVertical: 2,
+    minWidth: 80,
   },
-  buyInHint: {
-    fontSize: 12,
-    color: "#64748b",
-    paddingHorizontal: 12,
-    paddingBottom: 12,
+  buyInRange: {
+    fontSize: 11,
+    color: "#4a5568",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
+
+  // Fixed stakes
+  fixedRow: { padding: 14, gap: 2 },
+  fixedValue: { fontSize: 20, fontWeight: "700", color: "#ffd700" },
+  fixedHint: { fontSize: 12, color: "#64748b" },
+
+  // Info rows (rebuy + summary)
+  infoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  infoRowDivider: { height: 1, backgroundColor: "#1e2a3a", marginHorizontal: 14 },
+  infoLabel: { fontSize: 14, color: "#94a3b8" },
+  infoValue: { fontSize: 14, fontWeight: "600", color: "#e2e8f0" },
+  infoValueDim: { color: "#64748b" },
+  rebuyNote: { fontSize: 11, color: "#4a5568", paddingHorizontal: 14, paddingBottom: 10 },
+
+  // Summary
+  summarySeparator: { height: 1, backgroundColor: "#2d3a56", marginHorizontal: 14, marginTop: 8 },
+  summaryEndTitle: { fontSize: 13, color: "#64748b", paddingHorizontal: 14, paddingTop: 10, fontWeight: "600" },
+  summaryEndItem: { fontSize: 13, color: "#64748b", paddingHorizontal: 14, paddingBottom: 4 },
 
   // Error
   errorText: {
@@ -586,12 +563,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // Action buttons
-  btnRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 20,
-  },
+  // Buttons
+  btnRow: { flexDirection: "row", gap: 12, marginTop: 20 },
   cancelBtn: {
     flex: 1,
     paddingVertical: 15,

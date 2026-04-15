@@ -5,8 +5,7 @@
  * ────────
  * • The socket is fully mocked; event handlers are captured so tests can fire
  *   "room-created" and "create-room-error" events manually.
- * • Auth store is mocked with a configurable chip count.
- * • The GAME_REGISTRY and STAKES_PRESETS are imported directly (pure data).
+ * • The GAME_REGISTRY is imported directly (pure data).
  * • Timeout behaviour is tested by spying on global.setTimeout.
  */
 
@@ -25,8 +24,6 @@ jest.mock("expo-router", () => ({
   router: { replace: jest.fn(), back: jest.fn() },
   Stack: { Screen: () => null },
 }));
-
-jest.mock("../../store/auth-store", () => ({ useAuthStore: jest.fn() }));
 
 // Socket mock — captures event handlers so tests can fire events.
 const socketHandlers: Record<string, ((...args: any[]) => void)[]> = {};
@@ -49,36 +46,29 @@ jest.mock("../../lib/socket", () => ({
 }));
 
 import { router } from "expo-router";
-import { useAuthStore } from "../../store/auth-store";
 import CreateGameScreen from "../../app/(app)/create-game";
-import { GAME_REGISTRY, STAKES_PRESETS } from "../../lib/gameRegistry";
+import { GAME_REGISTRY } from "../../lib/gameRegistry";
 
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
-
-const CHIPS = 5_000;
-
-function setupStore(chips = CHIPS) {
-  jest.mocked(useAuthStore).mockReturnValue({
-    chips,
-    user: { user_metadata: { username: "PokerPro" } },
-    session: { access_token: "tok-abc" },
-    signOut: jest.fn(),
-    isAuthenticated: true,
-    isLoading: false,
-  } as any);
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Fire all handlers registered for a socket event. */
 function emitSocket(event: string, data: unknown) {
   (socketHandlers[event] ?? []).forEach((h) => h(data));
 }
 
+const FIVE_CARD_IDS = GAME_REGISTRY
+  .filter((v) => v.id.startsWith("5-card"))
+  .map((v) => v.id);
+
+const SEVEN_CARD_IDS = GAME_REGISTRY
+  .filter((v) => !v.id.startsWith("5-card"))
+  .map((v) => v.id);
+
 // ─── Setup / teardown ─────────────────────────────────────────────────────────
 
 beforeEach(() => {
   jest.clearAllMocks();
   Object.keys(socketHandlers).forEach((k) => delete socketHandlers[k]);
-  setupStore();
   jest.useRealTimers();
 });
 
@@ -99,33 +89,42 @@ describe("CreateGameScreen — rendering", () => {
 
   it("renders variant names", () => {
     render(<CreateGameScreen />);
-    expect(screen.getByText("5 Card Stud")).toBeTruthy();
-    expect(screen.getByText("7 Card Stud")).toBeTruthy();
-    expect(screen.getByText("Razz")).toBeTruthy();
+    // "5 Card Stud" appears in both the variant list and the summary card.
+    expect(screen.getAllByText("5 Card Stud").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("7 Card Stud").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Razz").length).toBeGreaterThanOrEqual(1);
   });
 
-  it("renders all 4 stakes presets", () => {
+  it("renders the four buy-in preset buttons", () => {
     render(<CreateGameScreen />);
-    for (let i = 0; i < STAKES_PRESETS.length; i++) {
-      expect(screen.getByTestId(`stake-preset-${i}`)).toBeTruthy();
+    for (const amount of [500, 1000, 2500, 5000]) {
+      expect(screen.getByTestId(`buy-in-preset-${amount}`)).toBeTruthy();
     }
   });
 
-  it("renders the Custom stakes option", () => {
+  it("renders the Custom buy-in option", () => {
     render(<CreateGameScreen />);
-    expect(screen.getByTestId("stake-custom")).toBeTruthy();
+    expect(screen.getByTestId("buy-in-custom")).toBeTruthy();
   });
 
-  it("renders player count buttons 2-8", () => {
+  it("renders the fixed stakes card", () => {
     render(<CreateGameScreen />);
-    for (let n = 2; n <= 8; n++) {
-      expect(screen.getByTestId(`player-btn-${n}`)).toBeTruthy();
-    }
+    expect(screen.getByTestId("stakes-card")).toBeTruthy();
+    expect(screen.getByTestId("stakes-display")).toBeTruthy();
+    expect(screen.getByText("$1 / $2")).toBeTruthy();
   });
 
-  it("renders the buy-in input", () => {
+  it("renders the rebuy settings card", () => {
     render(<CreateGameScreen />);
-    expect(screen.getByTestId("input-buy-in")).toBeTruthy();
+    expect(screen.getByTestId("rebuy-card")).toBeTruthy();
+    expect(screen.getByTestId("rebuy-timeout")).toBeTruthy();
+  });
+
+  it("renders the game summary card", () => {
+    render(<CreateGameScreen />);
+    expect(screen.getByTestId("summary-card")).toBeTruthy();
+    expect(screen.getByTestId("summary-variant")).toBeTruthy();
+    expect(screen.getByTestId("summary-stakes")).toBeTruthy();
   });
 
   it("renders Create Game and Cancel buttons", () => {
@@ -138,33 +137,31 @@ describe("CreateGameScreen — rendering", () => {
 // ─── Default values ───────────────────────────────────────────────────────────
 
 describe("CreateGameScreen — defaults", () => {
-  it("selects the first game variant by default", () => {
+  it("selects the first game variant (5 Card Stud) by default", () => {
     render(<CreateGameScreen />);
-    // First variant's radio button should visually reflect selection;
-    // check the variant is visually present and the row exists.
-    expect(screen.getByTestId(`variant-${GAME_REGISTRY[0].id}`)).toBeTruthy();
+    expect(screen.getByTestId(`variant-${GAME_REGISTRY[0]!.id}`)).toBeTruthy();
   });
 
-  it("selects the $1/$2 stakes preset by default", () => {
+  it("defaults buy-in to $1,000", () => {
     render(<CreateGameScreen />);
-    // The $1/$2 preset is index 1.
-    expect(screen.getByText(STAKES_PRESETS[1].label)).toBeTruthy();
+    // $1,000 preset should be active (contains "recommended").
+    expect(screen.getByText(/\$1,000.*recommended/)).toBeTruthy();
   });
 
-  it("defaults max players to 6", () => {
+  it("defaults max players to 5 for the default 5-card game", () => {
     render(<CreateGameScreen />);
-    expect(screen.getByTestId("max-players-value").props.children).toBe(6);
+    // 5-card-stud caps at 5; initial maxPlayers(6) is clamped on first effect run.
+    expect(screen.getByTestId("max-players-value").props.children).toBe(5);
   });
 
-  it("defaults buy-in to 100× the bring-in for $1/$2 stakes", () => {
+  it("does not show the custom buy-in text input by default", () => {
     render(<CreateGameScreen />);
-    // $1/$2 → bringIn = $2 → default = 100 × 2 = $200
-    expect(screen.getByTestId("input-buy-in").props.value).toBe("200");
+    expect(screen.queryByTestId("input-custom-buy-in")).toBeNull();
   });
 
-  it("does not show custom stakes inputs initially", () => {
+  it("does not show a variant description by default", () => {
     render(<CreateGameScreen />);
-    expect(screen.queryByTestId("custom-stakes-inputs")).toBeNull();
+    expect(screen.queryByTestId(`desc-${GAME_REGISTRY[0]!.id}`)).toBeNull();
   });
 });
 
@@ -173,17 +170,13 @@ describe("CreateGameScreen — defaults", () => {
 describe("CreateGameScreen — game variant selection", () => {
   it("selects a variant when its row is pressed", () => {
     render(<CreateGameScreen />);
-    const razzVariant = GAME_REGISTRY.find((v) => v.id === "razz")!;
-    fireEvent.press(screen.getByTestId(`variant-${razzVariant.id}`));
-    // The variant is now selected — its radio state is internal; we verify it
-    // will be included in the emitted payload.
-    expect(screen.getByTestId(`variant-${razzVariant.id}`)).toBeTruthy();
+    const razz = GAME_REGISTRY.find((v) => v.id === "razz")!;
+    fireEvent.press(screen.getByTestId(`variant-${razz.id}`));
+    expect(screen.getByTestId(`variant-${razz.id}`)).toBeTruthy();
   });
 
   it("includes the selected game type in the emitted payload", async () => {
     render(<CreateGameScreen />);
-
-    // Select Razz.
     const razz = GAME_REGISTRY.find((v) => v.id === "razz")!;
     fireEvent.press(screen.getByTestId(`variant-${razz.id}`));
     fireEvent.press(screen.getByTestId("btn-create"));
@@ -195,20 +188,21 @@ describe("CreateGameScreen — game variant selection", () => {
       )
     );
   });
+
+  it("updates the game summary variant when a new variant is selected", () => {
+    render(<CreateGameScreen />);
+    const razz = GAME_REGISTRY.find((v) => v.id === "razz")!;
+    fireEvent.press(screen.getByTestId(`variant-${razz.id}`));
+    expect(screen.getByTestId("summary-variant").props.children).toBe("Razz");
+  });
 });
 
 // ─── Description expand/collapse ─────────────────────────────────────────────
 
 describe("CreateGameScreen — description expand/collapse", () => {
-  it("does not show a description by default", () => {
-    render(<CreateGameScreen />);
-    const first = GAME_REGISTRY[0];
-    expect(screen.queryByTestId(`desc-${first.id}`)).toBeNull();
-  });
-
   it("shows the description when the info button is pressed", () => {
     render(<CreateGameScreen />);
-    const first = GAME_REGISTRY[0];
+    const first = GAME_REGISTRY[0]!;
     fireEvent.press(screen.getByTestId(`info-btn-${first.id}`));
     expect(screen.getByTestId(`desc-${first.id}`)).toBeTruthy();
     expect(screen.getByText(first.description)).toBeTruthy();
@@ -216,7 +210,7 @@ describe("CreateGameScreen — description expand/collapse", () => {
 
   it("hides the description when the info button is pressed again", () => {
     render(<CreateGameScreen />);
-    const first = GAME_REGISTRY[0];
+    const first = GAME_REGISTRY[0]!;
     fireEvent.press(screen.getByTestId(`info-btn-${first.id}`));
     expect(screen.getByTestId(`desc-${first.id}`)).toBeTruthy();
     fireEvent.press(screen.getByTestId(`info-btn-${first.id}`));
@@ -225,90 +219,46 @@ describe("CreateGameScreen — description expand/collapse", () => {
 
   it("only shows one description at a time", () => {
     render(<CreateGameScreen />);
-    const [first, second] = GAME_REGISTRY;
+    const [first, second] = GAME_REGISTRY as [typeof GAME_REGISTRY[0], typeof GAME_REGISTRY[0]];
     fireEvent.press(screen.getByTestId(`info-btn-${first.id}`));
     expect(screen.getByTestId(`desc-${first.id}`)).toBeTruthy();
-
-    // Opening a second one collapses the first.
     fireEvent.press(screen.getByTestId(`info-btn-${second.id}`));
     expect(screen.queryByTestId(`desc-${first.id}`)).toBeNull();
     expect(screen.getByTestId(`desc-${second.id}`)).toBeTruthy();
   });
 });
 
-// ─── Stakes selection ─────────────────────────────────────────────────────────
-
-describe("CreateGameScreen — stakes selection", () => {
-  it("selects each preset", () => {
-    render(<CreateGameScreen />);
-    for (let i = 0; i < STAKES_PRESETS.length; i++) {
-      fireEvent.press(screen.getByTestId(`stake-preset-${i}`));
-      // Pressing should not throw; basic smoke test.
-      expect(screen.getByTestId(`stake-preset-${i}`)).toBeTruthy();
-    }
-  });
-
-  it("recalculates buy-in when a different preset is selected", () => {
-    render(<CreateGameScreen />);
-    // Switch from $1/$2 (default) to $5/$10.
-    fireEvent.press(screen.getByTestId("stake-preset-2")); // $5/$10
-    // Expected buy-in: 100 × $10 = $1000, capped at chips ($5000).
-    expect(screen.getByTestId("input-buy-in").props.value).toBe("1000");
-  });
-
-  it("shows custom stakes inputs when Custom is selected", () => {
-    render(<CreateGameScreen />);
-    fireEvent.press(screen.getByTestId("stake-custom"));
-    expect(screen.getByTestId("custom-stakes-inputs")).toBeTruthy();
-    expect(screen.getByTestId("input-ante")).toBeTruthy();
-    expect(screen.getByTestId("input-bring-in")).toBeTruthy();
-  });
-
-  it("hides custom stakes inputs when a preset is re-selected", () => {
-    render(<CreateGameScreen />);
-    fireEvent.press(screen.getByTestId("stake-custom"));
-    expect(screen.getByTestId("custom-stakes-inputs")).toBeTruthy();
-    fireEvent.press(screen.getByTestId("stake-preset-0"));
-    expect(screen.queryByTestId("custom-stakes-inputs")).toBeNull();
-  });
-
-  it("includes custom stakes in the emitted payload", async () => {
-    render(<CreateGameScreen />);
-    fireEvent.press(screen.getByTestId("stake-custom"));
-
-    fireEvent.changeText(screen.getByTestId("input-ante"), "2");
-    fireEvent.changeText(screen.getByTestId("input-bring-in"), "5");
-
-    // Manually set a valid buy-in (min = 20 × 5 = 100).
-    fireEvent.changeText(screen.getByTestId("input-buy-in"), "100");
-
-    fireEvent.press(screen.getByTestId("btn-create"));
-
-    await waitFor(() =>
-      expect(mockSocket.emit).toHaveBeenCalledWith(
-        "create-room",
-        expect.objectContaining({
-          stakes: { ante: 2, bringIn: 5 },
-        })
-      )
-    );
-  });
-});
-
 // ─── Max players ──────────────────────────────────────────────────────────────
 
 describe("CreateGameScreen — max players", () => {
-  it.each([2, 3, 4, 5, 6, 7, 8])(
-    "selecting %i updates the displayed value",
-    (n) => {
-      render(<CreateGameScreen />);
-      fireEvent.press(screen.getByTestId(`player-btn-${n}`));
-      expect(screen.getByTestId("max-players-value").props.children).toBe(n);
+  it("shows player buttons 2–5 for a 5-card game", () => {
+    render(<CreateGameScreen />);
+    // Default is 5-card-stud.
+    for (let n = 2; n <= 5; n++) {
+      expect(screen.getByTestId(`player-btn-${n}`)).toBeTruthy();
     }
-  );
+    expect(screen.queryByTestId("player-btn-6")).toBeNull();
+    expect(screen.queryByTestId("player-btn-7")).toBeNull();
+  });
+
+  it("shows player buttons 2–7 after switching to a 7-card game", () => {
+    render(<CreateGameScreen />);
+    fireEvent.press(screen.getByTestId("variant-7-card-stud"));
+    for (let n = 2; n <= 7; n++) {
+      expect(screen.getByTestId(`player-btn-${n}`)).toBeTruthy();
+    }
+    expect(screen.queryByTestId("player-btn-8")).toBeNull();
+  });
+
+  it("updates the displayed value when a player count is selected", () => {
+    render(<CreateGameScreen />);
+    fireEvent.press(screen.getByTestId("player-btn-3"));
+    expect(screen.getByTestId("max-players-value").props.children).toBe(3);
+  });
 
   it("includes maxPlayers in the emitted payload", async () => {
     render(<CreateGameScreen />);
+    fireEvent.press(screen.getByTestId("variant-7-card-stud"));
     fireEvent.press(screen.getByTestId("player-btn-4"));
     fireEvent.press(screen.getByTestId("btn-create"));
 
@@ -319,91 +269,113 @@ describe("CreateGameScreen — max players", () => {
       )
     );
   });
+
+  it("updates the summary player range when max players changes", () => {
+    render(<CreateGameScreen />);
+    fireEvent.press(screen.getByTestId("player-btn-4"));
+    expect(screen.getByTestId("summary-players").props.children).toBe("2–4");
+  });
+});
+
+// ─── Buy-in selection ─────────────────────────────────────────────────────────
+
+describe("CreateGameScreen — buy-in selection", () => {
+  it("selects each preset without error", () => {
+    render(<CreateGameScreen />);
+    for (const amount of [500, 1000, 2500, 5000]) {
+      fireEvent.press(screen.getByTestId(`buy-in-preset-${amount}`));
+      expect(screen.getByTestId(`buy-in-preset-${amount}`)).toBeTruthy();
+    }
+  });
+
+  it("shows the custom input when Custom is selected", () => {
+    render(<CreateGameScreen />);
+    fireEvent.press(screen.getByTestId("buy-in-custom"));
+    expect(screen.getByTestId("input-custom-buy-in")).toBeTruthy();
+  });
+
+  it("hides the custom input when a preset is re-selected", () => {
+    render(<CreateGameScreen />);
+    fireEvent.press(screen.getByTestId("buy-in-custom"));
+    expect(screen.getByTestId("input-custom-buy-in")).toBeTruthy();
+    fireEvent.press(screen.getByTestId("buy-in-preset-500"));
+    expect(screen.queryByTestId("input-custom-buy-in")).toBeNull();
+  });
+
+  it("auto-calculates rebuy min and max from the selected preset", () => {
+    render(<CreateGameScreen />);
+    fireEvent.press(screen.getByTestId("buy-in-preset-1000"));
+    expect(screen.getByTestId("rebuy-min").props.children).toBe("$500");
+    expect(screen.getByTestId("rebuy-max").props.children).toBe("$2,000");
+  });
+
+  it("updates summary buy-in when preset changes", () => {
+    render(<CreateGameScreen />);
+    fireEvent.press(screen.getByTestId("buy-in-preset-2500"));
+    expect(screen.getByTestId("summary-buy-in").props.children).toBe("$2,500");
+  });
 });
 
 // ─── Buy-in validation ────────────────────────────────────────────────────────
 
 describe("CreateGameScreen — buy-in validation", () => {
-  it("shows an error when buy-in is below the minimum", () => {
+  it("shows an error when the custom buy-in is below $100", () => {
     render(<CreateGameScreen />);
-    // $1/$2 → min = 20 × $2 = $40. Enter $10.
-    fireEvent.changeText(screen.getByTestId("input-buy-in"), "10");
+    fireEvent.press(screen.getByTestId("buy-in-custom"));
+    fireEvent.changeText(screen.getByTestId("input-custom-buy-in"), "50");
     fireEvent.press(screen.getByTestId("btn-create"));
 
     expect(screen.getByTestId("error-message")).toBeTruthy();
     expect(screen.getByText(/Minimum buy-in/i)).toBeTruthy();
   });
 
-  it("shows an error when buy-in exceeds available chips", () => {
-    setupStore(100); // only $100 chips
+  it("shows an error when the custom buy-in exceeds $10,000", () => {
     render(<CreateGameScreen />);
-    fireEvent.changeText(screen.getByTestId("input-buy-in"), "500");
+    fireEvent.press(screen.getByTestId("buy-in-custom"));
+    fireEvent.changeText(screen.getByTestId("input-custom-buy-in"), "15000");
     fireEvent.press(screen.getByTestId("btn-create"));
 
     expect(screen.getByTestId("error-message")).toBeTruthy();
-    expect(screen.getByText(/chips/i)).toBeTruthy();
+    expect(screen.getByText(/Maximum buy-in/i)).toBeTruthy();
+  });
+
+  it("shows an error when custom buy-in is empty", () => {
+    render(<CreateGameScreen />);
+    fireEvent.press(screen.getByTestId("buy-in-custom"));
+    fireEvent.press(screen.getByTestId("btn-create"));
+
+    expect(screen.getByTestId("error-message")).toBeTruthy();
   });
 
   it("does not emit create-room when buy-in is invalid", () => {
     render(<CreateGameScreen />);
-    fireEvent.changeText(screen.getByTestId("input-buy-in"), "1");
+    fireEvent.press(screen.getByTestId("buy-in-custom"));
+    fireEvent.changeText(screen.getByTestId("input-custom-buy-in"), "10");
     fireEvent.press(screen.getByTestId("btn-create"));
 
     expect(mockSocket.emit).not.toHaveBeenCalled();
   });
 });
 
-// ─── Custom stakes validation ─────────────────────────────────────────────────
-
-describe("CreateGameScreen — custom stakes validation", () => {
-  beforeEach(() => {
-    render(<CreateGameScreen />);
-    fireEvent.press(screen.getByTestId("stake-custom"));
-  });
-
-  it("shows an error when ante is missing", () => {
-    fireEvent.changeText(screen.getByTestId("input-bring-in"), "5");
-    fireEvent.press(screen.getByTestId("btn-create"));
-    expect(screen.getByText(/Ante must be/i)).toBeTruthy();
-  });
-
-  it("shows an error when bring-in is missing", () => {
-    fireEvent.changeText(screen.getByTestId("input-ante"), "2");
-    fireEvent.press(screen.getByTestId("btn-create"));
-    expect(screen.getByText(/Bring-in must be a positive/i)).toBeTruthy();
-  });
-
-  it("shows an error when bring-in is not greater than ante", () => {
-    fireEvent.changeText(screen.getByTestId("input-ante"), "5");
-    fireEvent.changeText(screen.getByTestId("input-bring-in"), "3");
-    fireEvent.press(screen.getByTestId("btn-create"));
-    expect(screen.getByText(/Bring-in must be greater/i)).toBeTruthy();
-  });
-
-  it("clears the error when ante is corrected", async () => {
-    fireEvent.press(screen.getByTestId("btn-create"));
-    expect(screen.getByTestId("error-message")).toBeTruthy();
-    fireEvent.changeText(screen.getByTestId("input-ante"), "2");
-    await waitFor(() =>
-      expect(screen.queryByTestId("error-message")).toBeNull()
-    );
-  });
-});
-
 // ─── Submission ───────────────────────────────────────────────────────────────
 
 describe("CreateGameScreen — submission", () => {
-  it("emits create-room with the full payload", async () => {
+  it("emits create-room with the complete fixed payload", async () => {
     render(<CreateGameScreen />);
-    // Defaults: 5-card-stud, $1/$2, 6 players, buy-in=$200.
+    // Defaults: 5-card-stud, 5 players (clamped), $1,000 buy-in.
     fireEvent.press(screen.getByTestId("btn-create"));
 
     await waitFor(() =>
       expect(mockSocket.emit).toHaveBeenCalledWith("create-room", {
-        gameType: GAME_REGISTRY[0].id,
-        stakes: { ante: STAKES_PRESETS[1].ante, bringIn: STAKES_PRESETS[1].bringIn },
-        maxPlayers: 6,
-        buyIn: 200,
+        gameType: GAME_REGISTRY[0]!.id,
+        maxPlayers: 5,
+        startingBuyIn: 1000,
+        minRebuy: 500,
+        maxRebuy: 2000,
+        stakes: { ante: 1, bringIn: 2 },
+        allowRebuys: true,
+        rebuyTimeoutSeconds: 120,
+        endConditions: { manualEnd: true, onePlayerRemains: true },
       })
     );
   });
@@ -419,16 +391,59 @@ describe("CreateGameScreen — submission", () => {
   it("disables the Create Game button while submitting", async () => {
     render(<CreateGameScreen />);
     fireEvent.press(screen.getByTestId("btn-create"));
-    // Pressable maps `disabled` to accessibilityState.disabled in the test renderer.
     await waitFor(() =>
       expect(
         screen.getByTestId("btn-create").props.accessibilityState?.disabled
       ).toBe(true)
     );
   });
+
+  it("always sends fixed stakes $1/$2", async () => {
+    render(<CreateGameScreen />);
+    fireEvent.press(screen.getByTestId("btn-create"));
+
+    await waitFor(() =>
+      expect(mockSocket.emit).toHaveBeenCalledWith(
+        "create-room",
+        expect.objectContaining({ stakes: { ante: 1, bringIn: 2 } })
+      )
+    );
+  });
+
+  it("always sends allowRebuys: true and rebuyTimeoutSeconds: 120", async () => {
+    render(<CreateGameScreen />);
+    fireEvent.press(screen.getByTestId("btn-create"));
+
+    await waitFor(() =>
+      expect(mockSocket.emit).toHaveBeenCalledWith(
+        "create-room",
+        expect.objectContaining({
+          allowRebuys: true,
+          rebuyTimeoutSeconds: 120,
+        })
+      )
+    );
+  });
+
+  it("includes the correct minRebuy and maxRebuy when buy-in is $2,500", async () => {
+    render(<CreateGameScreen />);
+    fireEvent.press(screen.getByTestId("buy-in-preset-2500"));
+    fireEvent.press(screen.getByTestId("btn-create"));
+
+    await waitFor(() =>
+      expect(mockSocket.emit).toHaveBeenCalledWith(
+        "create-room",
+        expect.objectContaining({
+          startingBuyIn: 2500,
+          minRebuy: 1250,
+          maxRebuy: 5000,
+        })
+      )
+    );
+  });
 });
 
-// ─── room-created event ───────────────────────────────────────────────────────
+// ─── room-created socket event ────────────────────────────────────────────────
 
 describe("CreateGameScreen — room-created socket event", () => {
   it("navigates to the game room with the received roomId", async () => {
@@ -458,7 +473,7 @@ describe("CreateGameScreen — room-created socket event", () => {
   });
 });
 
-// ─── create-room-error event ──────────────────────────────────────────────────
+// ─── create-room-error socket event ──────────────────────────────────────────
 
 describe("CreateGameScreen — create-room-error socket event", () => {
   it("shows the server error message", async () => {
@@ -523,9 +538,7 @@ describe("CreateGameScreen — server timeout", () => {
     await act(async () => { timeoutCb?.(); });
 
     await waitFor(() =>
-      expect(
-        screen.getByText(/Server did not respond/i)
-      ).toBeTruthy()
+      expect(screen.getByText(/Server did not respond/i)).toBeTruthy()
     );
   });
 });
@@ -543,5 +556,20 @@ describe("CreateGameScreen — cancel", () => {
     render(<CreateGameScreen />);
     fireEvent.press(screen.getByTestId("btn-cancel"));
     expect(mockSocket.emit).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Stakes display ───────────────────────────────────────────────────────────
+
+describe("CreateGameScreen — fixed stakes display", () => {
+  it("always displays $1/$2 in the summary regardless of any selection", () => {
+    render(<CreateGameScreen />);
+    expect(screen.getByTestId("summary-stakes").props.children).toBe("$1/$2");
+  });
+
+  it("displays the fixed stakes card with $1 / $2", () => {
+    render(<CreateGameScreen />);
+    expect(screen.getByText("$1 / $2")).toBeTruthy();
+    expect(screen.getByText("Fixed for all games")).toBeTruthy();
   });
 });
