@@ -111,6 +111,7 @@ function resetStore() {
     canRaise: false,
     minRaise: 0,
     maxRaise: 0,
+    sessionBuyIns: [],
   });
 }
 
@@ -722,6 +723,94 @@ describe("useActionBarState() selector", () => {
 });
 
 // ─── Integration: full game flow ──────────────────────────────────────────────
+
+// ─── sessionBuyIns ────────────────────────────────────────────────────────────
+
+describe("sessionBuyIns — initial state", () => {
+  beforeEach(resetStore);
+
+  it("starts as an empty array", () => {
+    expect(useGameStore.getState().sessionBuyIns).toEqual([]);
+  });
+});
+
+describe("recordBuyIn()", () => {
+  beforeEach(resetStore);
+
+  it("appends the amount to sessionBuyIns", () => {
+    useGameStore.getState().recordBuyIn(1000);
+    expect(useGameStore.getState().sessionBuyIns).toEqual([1000]);
+  });
+
+  it("accumulates multiple rebuys in insertion order", () => {
+    useGameStore.getState().recordBuyIn(1000);
+    useGameStore.getState().recordBuyIn(500);
+    useGameStore.getState().recordBuyIn(750);
+    expect(useGameStore.getState().sessionBuyIns).toEqual([1000, 500, 750]);
+  });
+});
+
+describe("setRoom() — sessionBuyIns", () => {
+  beforeEach(resetStore);
+
+  it("records the local player's starting chips as the first buy-in on room join", () => {
+    useGameStore.getState().setMyPlayerId("player-a"); // PLAYER_A.chips = 1000
+    useGameStore.getState().setRoom(ROOM);
+    expect(useGameStore.getState().sessionBuyIns).toEqual([1000]);
+  });
+
+  it("records PLAYER_B's chips when that is the local player", () => {
+    useGameStore.getState().setMyPlayerId("player-b"); // PLAYER_B.chips = 800
+    useGameStore.getState().setRoom(ROOM);
+    expect(useGameStore.getState().sessionBuyIns).toEqual([800]);
+  });
+
+  it("records an empty array when myPlayerId is not set at join time", () => {
+    // myPlayerId not set — can't resolve the local player's chips
+    useGameStore.getState().setRoom(ROOM);
+    expect(useGameStore.getState().sessionBuyIns).toEqual([]);
+  });
+
+  it("records an empty array when the local player is not in the room roster", () => {
+    useGameStore.getState().setMyPlayerId("player-unknown");
+    useGameStore.getState().setRoom(ROOM);
+    expect(useGameStore.getState().sessionBuyIns).toEqual([]);
+  });
+
+  it("resets sessionBuyIns to empty when room is cleared", () => {
+    useGameStore.getState().setMyPlayerId("player-a");
+    useGameStore.getState().setRoom(ROOM);
+    useGameStore.getState().recordBuyIn(500); // simulate a rebuy
+
+    useGameStore.getState().setRoom(null);
+    expect(useGameStore.getState().sessionBuyIns).toEqual([]);
+  });
+
+  it("resets sessionBuyIns when joining a new room after leaving the previous one", () => {
+    useGameStore.getState().setMyPlayerId("player-a");
+    useGameStore.getState().setRoom(ROOM);
+    useGameStore.getState().recordBuyIn(500);
+
+    // Join a fresh room (same player, different room object)
+    useGameStore.getState().setRoom({ ...ROOM, id: "room-2" });
+    expect(useGameStore.getState().sessionBuyIns).toEqual([1000]); // only the new initial buy-in
+  });
+});
+
+describe("clearGame() — sessionBuyIns", () => {
+  beforeEach(resetStore);
+
+  it("resets sessionBuyIns to empty", () => {
+    useGameStore.getState().setMyPlayerId("player-a");
+    useGameStore.getState().setRoom(ROOM);
+    useGameStore.getState().recordBuyIn(500);
+
+    useGameStore.getState().clearGame();
+    expect(useGameStore.getState().sessionBuyIns).toEqual([]);
+  });
+});
+
+// ─── Integration: full game scenario ──────────────────────────────────────────
 
 describe("Integration: full game scenario", () => {
   beforeEach(resetStore);
