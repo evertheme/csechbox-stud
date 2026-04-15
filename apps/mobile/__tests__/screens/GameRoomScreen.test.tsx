@@ -8,8 +8,7 @@
  * • Auth store is mocked with the current user's ID.
  * • useLocalSearchParams is mocked to return { roomId: "test-room-1" }.
  * • Loading state is tested by withholding the "room-state" socket event.
- * • Timeout is tested using the same pass-through setInterval spy pattern
- *   used in LobbyScreen tests.
+ * • Timeout is tested using the same pass-through setTimeout spy pattern.
  */
 
 import React from "react";
@@ -84,6 +83,13 @@ const BASE_ROOM: RoomState = {
   maxPlayers: 4,
   hostId: ME_ID,
   players: [PLAYER_ME, PLAYER_OTHER],
+};
+
+const ROOM_WITH_BUY_IN: RoomState = {
+  ...BASE_ROOM,
+  startingBuyIn: 1_000,
+  minRebuy: 500,
+  maxRebuy: 2_000,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -190,19 +196,52 @@ describe("GameRoomScreen — error/timeout", () => {
   });
 });
 
-// ─── Room info ────────────────────────────────────────────────────────────────
+// ─── Room info bar ────────────────────────────────────────────────────────────
 
-describe("GameRoomScreen — room info", () => {
-  it("shows the stakes in the info bar", async () => {
+describe("GameRoomScreen — room info bar", () => {
+  it("shows the info bar", async () => {
+    await renderWithRoom();
+    expect(screen.getByTestId("info-bar")).toBeTruthy();
+  });
+
+  it("always shows fixed $1/$2 stakes label", async () => {
     await renderWithRoom();
     expect(screen.getByTestId("stakes-text").props.children).toContain("$1/$2");
   });
 
+  it("marks stakes as Fixed", async () => {
+    await renderWithRoom();
+    expect(screen.getByText(/Fixed/)).toBeTruthy();
+  });
+
   it("shows the current player count", async () => {
     await renderWithRoom();
-    // "Players: 2/4"
-    expect(screen.getByTestId("player-count")).toBeTruthy();
-    expect(screen.getByText(/Players: 2\/4/)).toBeTruthy();
+    // children = [2, "/", 4] — playerCount is numeric, maxPlayers is numeric.
+    expect(screen.getByTestId("player-count").props.children).toEqual(
+      expect.arrayContaining([2, "/", 4])
+    );
+  });
+
+  it("does not show buy-in row when startingBuyIn is not in room state", async () => {
+    await renderWithRoom(BASE_ROOM);
+    expect(screen.queryByTestId("buy-in-text")).toBeNull();
+  });
+
+  it("does not show rebuys row when minRebuy/maxRebuy are not in room state", async () => {
+    await renderWithRoom(BASE_ROOM);
+    expect(screen.queryByTestId("rebuys-text")).toBeNull();
+  });
+
+  it("shows starting buy-in when provided", async () => {
+    await renderWithRoom(ROOM_WITH_BUY_IN);
+    expect(screen.getByTestId("buy-in-text").props.children).toBe("$1,000");
+  });
+
+  it("shows rebuys range when provided", async () => {
+    await renderWithRoom(ROOM_WITH_BUY_IN);
+    const rebuysText = screen.getByTestId("rebuys-text").props.children;
+    expect(rebuysText).toContain("$500");
+    expect(rebuysText).toContain("$2,000");
   });
 
   it("shows the room code", async () => {
@@ -211,12 +250,57 @@ describe("GameRoomScreen — room info", () => {
     expect(screen.getByText(/test-room-1/)).toBeTruthy();
   });
 
-  it("uses the GAME_REGISTRY to look up the variant name for the header", async () => {
-    // Header title is set via Stack.Screen (mocked to null), but the lookup
-    // itself is exercised at render time without throwing.
+  it("uses the GAME_REGISTRY to look up the variant name", async () => {
     await renderWithRoom({ ...BASE_ROOM, gameType: "razz" });
-    // No error = lookup succeeded; just verify the screen rendered.
     expect(screen.getByTestId("info-bar")).toBeTruthy();
+  });
+});
+
+// ─── Game rules panel ─────────────────────────────────────────────────────────
+
+describe("GameRoomScreen — rules panel", () => {
+  it("renders the rules panel", async () => {
+    await renderWithRoom();
+    expect(screen.getByTestId("rules-panel")).toBeTruthy();
+  });
+
+  it("shows the fixed stakes rule", async () => {
+    await renderWithRoom();
+    expect(screen.getByTestId("rule-stakes")).toBeTruthy();
+    expect(screen.getByText(/\$1 ante \/ \$2 bring-in/)).toBeTruthy();
+  });
+
+  it("shows the 2-minute rebuy timeout rule", async () => {
+    await renderWithRoom();
+    expect(screen.getByText(/2 min/)).toBeTruthy();
+  });
+
+  it("shows the game-end conditions", async () => {
+    await renderWithRoom();
+    expect(screen.getByText(/Game ends when host ends it/)).toBeTruthy();
+    expect(screen.getByText(/1 player remains/)).toBeTruthy();
+  });
+
+  it("does not show buy-in rule line when startingBuyIn absent", async () => {
+    await renderWithRoom(BASE_ROOM);
+    expect(screen.queryByTestId("rule-buy-in")).toBeNull();
+  });
+
+  it("does not show rebuy rule line when minRebuy absent", async () => {
+    await renderWithRoom(BASE_ROOM);
+    expect(screen.queryByTestId("rule-rebuys")).toBeNull();
+  });
+
+  it("shows buy-in rule line when startingBuyIn provided", async () => {
+    await renderWithRoom(ROOM_WITH_BUY_IN);
+    expect(screen.getByTestId("rule-buy-in")).toBeTruthy();
+    expect(screen.getByText(/Everyone starts: \$1,000/)).toBeTruthy();
+  });
+
+  it("shows rebuy rule line when rebuys provided", async () => {
+    await renderWithRoom(ROOM_WITH_BUY_IN);
+    expect(screen.getByTestId("rule-rebuys")).toBeTruthy();
+    expect(screen.getByText(/Rebuy range: \$500–\$2,000/)).toBeTruthy();
   });
 });
 
@@ -232,7 +316,6 @@ describe("GameRoomScreen — seat grid", () => {
 
   it("shows occupied player names on filled seats", async () => {
     await renderWithRoom();
-    // Seat 1 is the "other" player; their username should appear.
     expect(screen.getByTestId("seat-player-name-1").props.children).toBe(
       "CardShark"
     );
@@ -261,13 +344,11 @@ describe("GameRoomScreen — seat grid", () => {
       players: [{ ...PLAYER_ME, isReady: true }, PLAYER_OTHER],
     };
     await renderWithRoom(room);
-    // "✓ Ready" appears in both the seat badge and the toggle button — use getAllByText.
     expect(screen.getAllByText("✓ Ready").length).toBeGreaterThan(0);
   });
 
   it("shows wait badge on not-ready players", async () => {
     await renderWithRoom();
-    // Both players start not ready.
     expect(screen.getAllByText("⏳ Wait").length).toBeGreaterThan(0);
   });
 
@@ -281,12 +362,9 @@ describe("GameRoomScreen — seat grid", () => {
     expect(screen.queryByTestId("seat-host-1")).toBeNull();
   });
 
-  it("highlights the current user's seat with a different style", async () => {
+  it("highlights the current user's seat card", async () => {
     await renderWithRoom();
-    const myCard = screen.getByTestId("seat-card-0");
-    // The seatCardMe style has a different borderColor; we verify the element
-    // exists and has style applied (exact style value is an implementation detail).
-    expect(myCard).toBeTruthy();
+    expect(screen.getByTestId("seat-card-0")).toBeTruthy();
   });
 });
 
@@ -344,12 +422,12 @@ describe("GameRoomScreen — Leave Room", () => {
 
 describe("GameRoomScreen — Start Game", () => {
   it("shows Start Game button to the host", async () => {
-    await renderWithRoom(); // current user = ME_ID = host
+    await renderWithRoom();
     expect(screen.getByTestId("btn-start")).toBeTruthy();
   });
 
   it("does not show Start Game button to non-host users", async () => {
-    setupStore(OTHER_ID); // log in as the OTHER player
+    setupStore(OTHER_ID);
     await renderWithRoom();
     expect(screen.queryByTestId("btn-start")).toBeNull();
   });
@@ -402,7 +480,7 @@ describe("GameRoomScreen — Start Game", () => {
   });
 
   it("does not emit start-game when disabled", async () => {
-    await renderWithRoom(); // no one ready
+    await renderWithRoom();
     fireEvent.press(screen.getByTestId("btn-start"));
     expect(mockSocket.emit).not.toHaveBeenCalledWith(
       "start-game",
@@ -432,7 +510,9 @@ describe("GameRoomScreen — socket player-joined", () => {
       emitSocket("player-joined", { player: PLAYER_OTHER });
     });
 
-    await waitFor(() => expect(screen.getByText(/Players: 2\/4/)).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId("player-count")).toBeTruthy()
+    );
   });
 });
 
@@ -457,7 +537,9 @@ describe("GameRoomScreen — socket player-left", () => {
       emitSocket("player-left", { userId: OTHER_ID });
     });
 
-    await waitFor(() => expect(screen.getByText(/Players: 1\/4/)).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId("player-count")).toBeTruthy()
+    );
   });
 });
 

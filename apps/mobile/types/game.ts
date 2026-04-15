@@ -93,6 +93,12 @@ export interface RoomState {
   /** userId of the room creator / current host */
   hostId: string;
   players: RoomPlayer[];
+  /** Chip amount each player starts with (set at room creation). */
+  startingBuyIn?: number;
+  /** Minimum rebuy amount (= startingBuyIn × 0.5). */
+  minRebuy?: number;
+  /** Maximum rebuy amount (= startingBuyIn × 2). */
+  maxRebuy?: number;
 }
 
 // ─── Game room socket event payloads ─────────────────────────────────────────

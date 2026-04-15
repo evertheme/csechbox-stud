@@ -38,6 +38,10 @@ function buildSeats(state: RoomState) {
   }));
 }
 
+function formatChips(n: number): string {
+  return `$${n.toLocaleString("en-US")}`;
+}
+
 // ─── SeatCard ─────────────────────────────────────────────────────────────────
 
 interface SeatCardProps {
@@ -66,7 +70,7 @@ function SeatCard({ seatIndex, player, isMe, isHost }: SeatCardProps) {
           </Text>
 
           <Text style={styles.playerChips} testID={`seat-chips-${seatIndex}`}>
-            ${player.chips.toLocaleString()}
+            {formatChips(player.chips)}
           </Text>
 
           <View
@@ -151,10 +155,8 @@ export default function GameRoomScreen() {
   useEffect(() => {
     const socket = getSocket();
 
-    // Request initial room snapshot.
     socket.emit("get-room", { roomId });
 
-    // Fail gracefully if the server doesn't respond quickly.
     timeoutRef.current = setTimeout(() => {
       setLoading(false);
       setError("Could not load the room. Please go back and try again.");
@@ -255,31 +257,79 @@ export default function GameRoomScreen() {
   }
 
   const variantName = lookupVariantName(roomState.gameType);
+  const hasBuyIn = roomState.startingBuyIn != null;
+  const hasRebuys = roomState.minRebuy != null && roomState.maxRebuy != null;
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          title: variantName,
-          headerBackTitle: "Lobby",
-        }}
-      />
+      <Stack.Screen options={{ title: variantName, headerBackTitle: "Lobby" }} />
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-      >
-        {/* ── Room info bar ────────────────────────────────────────────── */}
-        <View style={styles.infoBar} testID="info-bar">
-          <Text style={styles.infoStakes} testID="stakes-text">
-            Stakes: {roomState.stakes}
-          </Text>
-          <Text style={styles.infoCount} testID="player-count">
-            Players: {playerCount}/{roomState.maxPlayers}
-          </Text>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+
+        {/* ── Info bar ─────────────────────────────────────────────────── */}
+        <View style={styles.infoCard} testID="info-bar">
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Stakes</Text>
+            <Text style={styles.infoStakes} testID="stakes-text">
+              $1/$2 (Fixed)
+            </Text>
+          </View>
+
+          {hasBuyIn && (
+            <>
+              <View style={styles.infoRowDivider} />
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Starting Buy-in</Text>
+                <Text style={styles.infoValue} testID="buy-in-text">
+                  {formatChips(roomState.startingBuyIn!)}
+                </Text>
+              </View>
+            </>
+          )}
+
+          {hasRebuys && (
+            <>
+              <View style={styles.infoRowDivider} />
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Rebuys</Text>
+                <Text style={styles.infoValue} testID="rebuys-text">
+                  {`${formatChips(roomState.minRebuy!)} – ${formatChips(roomState.maxRebuy!)}`}
+                </Text>
+              </View>
+            </>
+          )}
+
+          <View style={styles.infoRowDivider} />
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Players</Text>
+            <Text style={styles.infoValue} testID="player-count">
+              {playerCount}/{roomState.maxPlayers}
+            </Text>
+          </View>
         </View>
 
-        {/* ── Seat grid ───────────────────────────────────────────────── */}
+        {/* ── Game rules panel ─────────────────────────────────────────── */}
+        <View style={styles.rulesCard} testID="rules-panel">
+          <Text style={styles.rulesTitle}>ℹ️ Game Rules</Text>
+          <Text style={styles.rulesItem} testID="rule-stakes">
+            • Stakes: $1 ante / $2 bring-in
+          </Text>
+          {hasBuyIn && (
+            <Text style={styles.rulesItem} testID="rule-buy-in">
+              {`• Everyone starts: ${formatChips(roomState.startingBuyIn!)}`}
+            </Text>
+          )}
+          {hasRebuys && (
+            <Text style={styles.rulesItem} testID="rule-rebuys">
+              {`• Rebuy range: ${formatChips(roomState.minRebuy!)}–${formatChips(roomState.maxRebuy!)}`}
+            </Text>
+          )}
+          <Text style={styles.rulesItem}>• 2 min to decide on rebuy</Text>
+          <Text style={styles.rulesItem}>• Game ends when host ends it,</Text>
+          <Text style={styles.rulesItemIndented}>  or 1 player remains</Text>
+        </View>
+
+        {/* ── Seat grid (3 columns) ─────────────────────────────────────── */}
         <View style={styles.seatGrid} testID="seat-grid">
           {seats.map(({ seatIndex, player }) => (
             <SeatCard
@@ -292,12 +342,12 @@ export default function GameRoomScreen() {
           ))}
         </View>
 
-        {/* ── Room code ───────────────────────────────────────────────── */}
+        {/* ── Room code ────────────────────────────────────────────────── */}
         <Text style={styles.roomCode} testID="room-code">
           Room: {roomId}
         </Text>
 
-        {/* ── Action bar ──────────────────────────────────────────────── */}
+        {/* ── Action bar ───────────────────────────────────────────────── */}
         <View style={styles.actionBar} testID="action-bar">
           <View style={styles.actionRow}>
             <Pressable
@@ -305,9 +355,7 @@ export default function GameRoomScreen() {
               onPress={handleToggleReady}
               testID="btn-toggle-ready"
             >
-              <Text
-                style={[styles.readyBtnText, isReady && styles.readyBtnTextActive]}
-              >
+              <Text style={[styles.readyBtnText, isReady && styles.readyBtnTextActive]}>
                 {isReady ? "✓ Ready" : "Not Ready"}
               </Text>
             </Pressable>
@@ -342,8 +390,6 @@ export default function GameRoomScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const SEAT_CARD_SIZE = 148;
-
 const styles = StyleSheet.create({
   // Utility
   centered: {
@@ -368,41 +414,62 @@ const styles = StyleSheet.create({
 
   // Main scroll
   scroll: { flex: 1, backgroundColor: "#1a1a2e" },
-  content: { paddingHorizontal: 16, paddingBottom: 40, gap: 16 },
+  content: { paddingHorizontal: 16, paddingBottom: 40, gap: 12 },
 
-  // Info bar
-  infoBar: {
+  // Info card (multi-row)
+  infoCard: {
+    backgroundColor: "#16213e",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#2d3a56",
+    overflow: "hidden",
+    marginTop: 16,
+  },
+  infoRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#16213e",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#2d3a56",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginTop: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
   },
-  infoStakes: { color: "#ffd700", fontSize: 14, fontWeight: "600" },
-  infoCount: { color: "#94a3b8", fontSize: 14 },
+  infoRowDivider: { height: 1, backgroundColor: "#1e2a3a", marginHorizontal: 14 },
+  infoLabel: { fontSize: 13, color: "#64748b" },
+  infoStakes: { fontSize: 14, fontWeight: "700", color: "#ffd700" },
+  infoValue: { fontSize: 14, fontWeight: "600", color: "#e2e8f0" },
 
-  // Seat grid — two columns
+  // Rules card
+  rulesCard: {
+    backgroundColor: "#0d1d35",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#1e3050",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  rulesTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#94a3b8",
+    marginBottom: 4,
+  },
+  rulesItem: { fontSize: 13, color: "#64748b", lineHeight: 20 },
+  rulesItemIndented: { fontSize: 13, color: "#64748b", lineHeight: 20, paddingLeft: 10 },
+
+  // Seat grid — 3 columns
   seatGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    justifyContent: "flex-start",
+    gap: 8,
   },
-
-  // Individual seat card
   seatCard: {
-    width: SEAT_CARD_SIZE,
-    minHeight: SEAT_CARD_SIZE,
+    width: "31%",
+    minHeight: 112,
     backgroundColor: "#16213e",
     borderRadius: 12,
     borderWidth: 1.5,
     borderColor: "#2d3a56",
-    padding: 12,
+    padding: 10,
     gap: 4,
     alignItems: "flex-start",
   },
@@ -411,26 +478,26 @@ const styles = StyleSheet.create({
     backgroundColor: "#1e2a14",
   },
   seatLabel: {
-    fontSize: 10,
+    fontSize: 9,
     color: "#64748b",
     fontWeight: "700",
     textTransform: "uppercase",
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
   },
-  playerName: { fontSize: 15, color: "#e2e8f0", fontWeight: "700" },
+  playerName: { fontSize: 13, color: "#e2e8f0", fontWeight: "700" },
   playerNameMe: { color: "#ffd700" },
-  playerChips: { fontSize: 13, color: "#94a3b8" },
+  playerChips: { fontSize: 11, color: "#94a3b8" },
   readyBadge: {
     borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
     marginTop: 2,
   },
   readyBadgeYes: { backgroundColor: "#0d3d1e" },
   readyBadgeNo: { backgroundColor: "#2d1f0a" },
-  readyBadgeText: { fontSize: 11, color: "#e2e8f0", fontWeight: "600" },
-  hostBadge: { fontSize: 11, color: "#ffd700", marginTop: 2 },
-  emptyLabel: { fontSize: 13, color: "#2d3a56", fontStyle: "italic" },
+  readyBadgeText: { fontSize: 10, color: "#e2e8f0", fontWeight: "600" },
+  hostBadge: { fontSize: 10, color: "#ffd700", marginTop: 2 },
+  emptyLabel: { fontSize: 12, color: "#2d3a56", fontStyle: "italic" },
 
   // Room code
   roomCode: {
