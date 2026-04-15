@@ -229,6 +229,16 @@ export interface GameStoreState {
   clearGame: () => void;
 
   /**
+   * Buy-in amounts recorded for the current session (one entry per buy-in).
+   * Populated automatically when setRoom is called; extended by recordBuyIn()
+   * for each subsequent rebuy during the session.
+   */
+  sessionBuyIns: number[];
+
+  /** Record an additional buy-in amount (e.g. on rebuy). */
+  recordBuyIn: (amount: number) => void;
+
+  /**
    * Replace the local player's private cards.
    * Call when the server sends the `game:deal-hole-cards` event.
    */
@@ -276,6 +286,7 @@ const INITIAL_STATE: Pick<
   | "canRaise"
   | "minRaise"
   | "maxRaise"
+  | "sessionBuyIns"
 > = {
   currentRoom: null,
   gameState: null,
@@ -296,6 +307,7 @@ const INITIAL_STATE: Pick<
   canRaise: false,
   minRaise: 0,
   maxRaise: 0,
+  sessionBuyIns: [],
 };
 
 // ─── Derived-value calculator ─────────────────────────────────────────────────
@@ -389,7 +401,10 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   setRoom: (room) => {
     set({ currentRoom: room });
 
-    if (!room) return;
+    if (!room) {
+      set({ sessionBuyIns: [] });
+      return;
+    }
 
     // Seed the players array from the room snapshot.
     const { myPlayerId, activePlayerIndex, currentBet } = get();
@@ -399,7 +414,14 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       activePlayerIndex,
       currentBet,
     });
-    set({ players: room.players, ...derived });
+
+    // Record the player's starting stack as the first buy-in for this session.
+    const myPlayerInRoom = myPlayerId
+      ? room.players.find((p) => p.id === myPlayerId) ?? null
+      : null;
+    const initialBuyIns = myPlayerInRoom ? [myPlayerInRoom.chips] : [];
+
+    set({ players: room.players, sessionBuyIns: initialBuyIns, ...derived });
   },
 
   // ── updateGameState ───────────────────────────────────────────────────────
@@ -475,6 +497,11 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
   addChatMessage: (message) =>
     set((s) => ({ chatMessages: [...s.chatMessages, message] })),
+
+  // ── recordBuyIn ───────────────────────────────────────────────────────────
+
+  recordBuyIn: (amount) =>
+    set((s) => ({ sessionBuyIns: [...s.sessionBuyIns, amount] })),
 
   // ── clearGame ─────────────────────────────────────────────────────────────
 

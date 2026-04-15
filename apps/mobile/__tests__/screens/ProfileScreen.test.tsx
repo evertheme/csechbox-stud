@@ -16,6 +16,12 @@ jest.mock("expo-router", () => ({
 
 jest.mock("../../store/auth-store", () => ({ useAuthStore: jest.fn() }));
 
+jest.mock("../../store/game-store", () => ({ useGameStore: jest.fn() }));
+
+jest.mock("zustand/react/shallow", () => ({
+  useShallow: (selector: (s: unknown) => unknown) => selector,
+}));
+
 jest.mock("../../lib/profileApi", () => ({
   fetchUserProfile: jest.fn(),
   updateUsernameApi: jest.fn(),
@@ -37,6 +43,7 @@ jest.mock("react-native/Libraries/Alert/Alert", () => ({ alert: jest.fn() }));
 
 import { router } from "expo-router";
 import { useAuthStore } from "../../store/auth-store";
+import { useGameStore } from "../../store/game-store";
 import {
   fetchUserProfile,
   updateUsernameApi,
@@ -46,6 +53,7 @@ import { checkUsernameAvailable } from "../../lib/usernameCheck";
 import * as ImagePicker from "expo-image-picker";
 import ProfileScreen from "../../app/(app)/profile";
 import type { UserProfile } from "../../lib/profileApi";
+import type { GameStoreState } from "../../store/game-store";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -72,6 +80,45 @@ const MOCK_USER = {
   created_at: "2026-01-15T00:00:00.000Z",
   user_metadata: { username: "PokerAce", avatar_url: null },
 };
+
+// ─── Game store fixtures ───────────────────────────────────────────────────────
+
+const MOCK_PLAYER = {
+  id: "user-1",
+  username: "PokerAce",
+  chips: 850,
+  seatIndex: 0,
+  cards: [],
+  currentBet: 0,
+  folded: false,
+  isReady: true,
+  isActive: false,
+};
+
+const MOCK_ROOM = {
+  id: "room-1",
+  gameType: "seven-card-stud",
+  stakes: { ante: 5, bringIn: 10 },
+  maxPlayers: 8,
+  players: [MOCK_PLAYER],
+  status: "playing" as const,
+  createdBy: "user-1",
+};
+
+function setupGameStore(
+  overrides: Partial<Pick<GameStoreState, "currentRoom" | "myPlayer" | "sessionBuyIns">> = {}
+) {
+  jest.mocked(useGameStore).mockImplementation((selector: unknown) => {
+    const state = {
+      currentRoom: null,
+      myPlayer: null,
+      sessionBuyIns: [] as number[],
+      ...overrides,
+    };
+    if (typeof selector === "function") return selector(state);
+    return state;
+  });
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -101,6 +148,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.useFakeTimers();
   setupStore();
+  setupGameStore();
   jest.mocked(fetchUserProfile).mockResolvedValue(MOCK_PROFILE);
   jest.mocked(checkUsernameAvailable).mockResolvedValue(true);
 });
@@ -144,10 +192,20 @@ describe("ProfileScreen — data display", () => {
     expect(screen.getByText(/Jan 15, 2026/)).toBeTruthy();
   });
 
-  it("shows chip balance", async () => {
+  it('shows "Unlimited" in the balance section', async () => {
     await renderProfile();
-    expect(screen.getByTestId("chips-amount")).toBeTruthy();
-    expect(screen.getByText(/1,250 chips/)).toBeTruthy();
+    expect(screen.getByTestId("unlimited-row")).toBeTruthy();
+    expect(screen.getByText("Unlimited")).toBeTruthy();
+  });
+
+  it('shows "Free" badge in the balance section', async () => {
+    await renderProfile();
+    expect(screen.getByText("Free")).toBeTruthy();
+  });
+
+  it("does NOT render the Add Chips button", async () => {
+    await renderProfile();
+    expect(screen.queryByTestId("btn-add-chips")).toBeNull();
   });
 
   it("shows avatar placeholder when no avatar URL", async () => {
@@ -379,15 +437,96 @@ describe("ProfileScreen — avatar change", () => {
   });
 });
 
+// ─── Balance section — not in game ────────────────────────────────────────────
+
+describe("ProfileScreen — balance section (not in game)", () => {
+  it("shows not-in-game message when no active room", async () => {
+    setupGameStore({ currentRoom: null, myPlayer: null });
+    await renderProfile();
+    expect(screen.getByTestId("no-active-game")).toBeTruthy();
+    expect(screen.getByText("Not currently in a game")).toBeTruthy();
+  });
+
+  it("does NOT show current-session block when not in a room", async () => {
+    setupGameStore({ currentRoom: null, myPlayer: null });
+    await renderProfile();
+    expect(screen.queryByTestId("current-session")).toBeNull();
+  });
+});
+
+// ─── Balance section — in game ────────────────────────────────────────────────
+
+describe("ProfileScreen — balance section (in game)", () => {
+  beforeEach(() => {
+    setupGameStore({
+      currentRoom: MOCK_ROOM,
+      myPlayer: MOCK_PLAYER,
+      sessionBuyIns: [1000],
+    });
+  });
+
+  it("shows the current-session block when in an active room", async () => {
+    await renderProfile();
+    expect(screen.getByTestId("current-session")).toBeTruthy();
+  });
+
+  it("does NOT show the not-in-game message when in a room", async () => {
+    await renderProfile();
+    expect(screen.queryByTestId("no-active-game")).toBeNull();
+  });
+
+  it("shows the current stack", async () => {
+    await renderProfile();
+    expect(screen.getByTestId("session-stack").props.children).toBe("$850");
+  });
+
+  it("shows a single buy-in amount without the count prefix", async () => {
+    await renderProfile();
+    expect(screen.getByTestId("session-buyins").props.children).toBe("$1,000");
+  });
+
+  it("shows multiple buy-ins with count prefix and breakdown", async () => {
+    setupGameStore({
+      currentRoom: MOCK_ROOM,
+      myPlayer: MOCK_PLAYER,
+      sessionBuyIns: [1000, 1000],
+    });
+    await renderProfile();
+    expect(screen.getByTestId("session-buyins").props.children).toBe(
+      "2x ($1,000+$1,000)"
+    );
+  });
+
+  it("shows a negative net when stack is below total buy-ins", async () => {
+    // Stack 850, buy-ins total 1000 → net -150
+    await renderProfile();
+    expect(screen.getByTestId("session-net").props.children).toBe("-$150");
+  });
+
+  it("shows a positive net when stack is above total buy-ins", async () => {
+    setupGameStore({
+      currentRoom: MOCK_ROOM,
+      myPlayer: { ...MOCK_PLAYER, chips: 1200 },
+      sessionBuyIns: [1000],
+    });
+    await renderProfile();
+    expect(screen.getByTestId("session-net").props.children).toBe("+$200");
+  });
+
+  it("shows em-dash net when no buy-ins are recorded yet", async () => {
+    setupGameStore({
+      currentRoom: MOCK_ROOM,
+      myPlayer: MOCK_PLAYER,
+      sessionBuyIns: [],
+    });
+    await renderProfile();
+    expect(screen.getByTestId("session-net").props.children).toBe("—");
+  });
+});
+
 // ─── Navigation ───────────────────────────────────────────────────────────────
 
 describe("ProfileScreen — navigation", () => {
-  it("navigates to add-chips screen", async () => {
-    await renderProfile();
-    fireEvent.press(screen.getByTestId("btn-add-chips"));
-    expect(router.push).toHaveBeenCalledWith("/(app)/add-chips");
-  });
-
   it("navigates to stats screen", async () => {
     await renderProfile();
     fireEvent.press(screen.getByTestId("btn-full-stats"));

@@ -12,8 +12,10 @@ import {
   View,
 } from "react-native";
 import { router, Stack } from "expo-router";
+import { useShallow } from "zustand/react/shallow";
 import * as ImagePicker from "expo-image-picker";
 import { useAuthStore } from "../../store/auth-store";
+import { useGameStore } from "../../store/game-store";
 import { checkUsernameAvailable } from "../../lib/usernameCheck";
 import {
   fetchUserProfile,
@@ -275,6 +277,57 @@ function UsernameRow({
   );
 }
 
+// ─── Session row ──────────────────────────────────────────────────────────────
+
+function SessionRow({
+  label,
+  value,
+  valueColor,
+  testID,
+}: {
+  label: string;
+  value: string;
+  valueColor?: string;
+  testID?: string;
+}) {
+  return (
+    <View style={styles.sessionRow}>
+      <Text style={styles.sessionLabel}>{label}</Text>
+      <Text
+        style={[styles.sessionValue, valueColor ? { color: valueColor } : null]}
+        testID={testID}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+// ─── Session helpers ──────────────────────────────────────────────────────────
+
+function formatBuyIns(buyIns: number[]): string {
+  if (buyIns.length === 0) return "—";
+  if (buyIns.length === 1) return `$${buyIns[0]!.toLocaleString("en-US")}`;
+  const amounts = buyIns.map((b) => `$${b.toLocaleString("en-US")}`).join("+");
+  return `${buyIns.length}x (${amounts})`;
+}
+
+function sessionNet(currentChips: number, buyIns: number[]): number | null {
+  const total = buyIns.reduce((s, b) => s + b, 0);
+  return total > 0 ? currentChips - total : null;
+}
+
+function formatNet(net: number | null): string {
+  if (net === null) return "—";
+  const abs = Math.abs(net).toLocaleString("en-US");
+  return net >= 0 ? `+$${abs}` : `-$${abs}`;
+}
+
+function netColor(net: number | null): string {
+  if (net === null) return "#64748b";
+  return net >= 0 ? "#22c55e" : "#f87171";
+}
+
 // ─── Stats grid ───────────────────────────────────────────────────────────────
 
 function StatRow({ label, value }: { label: string; value: string | number }) {
@@ -293,6 +346,16 @@ function StatRow({ label, value }: { label: string; value: string | number }) {
 export default function ProfileScreen() {
   const { user, session, chips, updateUsername, updateChips } = useAuthStore();
   const accessToken = session?.access_token ?? null;
+
+  const { currentRoom, myPlayer, sessionBuyIns } = useGameStore(
+    useShallow((s) => ({
+      currentRoom: s.currentRoom,
+      myPlayer: s.myPlayer,
+      sessionBuyIns: s.sessionBuyIns,
+    }))
+  );
+
+  const inActiveGame = currentRoom !== null && myPlayer !== null;
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -493,18 +556,48 @@ export default function ProfileScreen() {
 
             {/* ── Balance ─────────────────────────────────────────────── */}
             <View style={styles.section} testID="balance-section">
-              <Text style={styles.sectionTitle}>💰 Balance</Text>
+              <Text style={styles.sectionTitle}>💰 Chip Balance</Text>
               <View style={styles.balanceCard}>
-                <Text style={styles.chipsAmount} testID="chips-amount">
-                  {`$${(profile?.chips ?? chips).toLocaleString()} chips`}
-                </Text>
-                <Pressable
-                  style={styles.addChipsBtn}
-                  onPress={() => router.push("/(app)/add-chips")}
-                  testID="btn-add-chips"
-                >
-                  <Text style={styles.addChipsBtnText}>+ Add Chips</Text>
-                </Pressable>
+                {/* Unlimited indicator */}
+                <View style={styles.unlimitedRow} testID="unlimited-row">
+                  <Text style={styles.unlimitedIcon}>♾️</Text>
+                  <Text style={styles.unlimitedLabel}>Unlimited</Text>
+                  <View style={styles.freeBadge}>
+                    <Text style={styles.freeBadgeText}>Free</Text>
+                  </View>
+                </View>
+
+                {/* Current session */}
+                {inActiveGame ? (
+                  <View style={styles.sessionSection} testID="current-session">
+                    <Text style={styles.sessionTitle}>Current Session</Text>
+                    <SessionRow
+                      label="Stack"
+                      value={`$${myPlayer!.chips.toLocaleString("en-US")}`}
+                      testID="session-stack"
+                    />
+                    <SessionRow
+                      label="Buy-ins"
+                      value={formatBuyIns(sessionBuyIns)}
+                      testID="session-buyins"
+                    />
+                    {(() => {
+                      const net = sessionNet(myPlayer!.chips, sessionBuyIns);
+                      return (
+                        <SessionRow
+                          label="Net"
+                          value={formatNet(net)}
+                          valueColor={netColor(net)}
+                          testID="session-net"
+                        />
+                      );
+                    })()}
+                  </View>
+                ) : (
+                  <Text style={styles.noGame} testID="no-active-game">
+                    Not currently in a game
+                  </Text>
+                )}
               </View>
             </View>
 
@@ -669,21 +762,57 @@ const styles = StyleSheet.create({
     backgroundColor: "#0a1628",
     borderRadius: 12,
     padding: 16,
-    alignItems: "center",
-    gap: 12,
+    gap: 14,
     borderWidth: 1,
     borderColor: "#1e3a5f",
   },
-  chipsAmount: { fontSize: 26, fontWeight: "800", color: "#ffd700" },
-  addChipsBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+  unlimitedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  unlimitedIcon: { fontSize: 20 },
+  unlimitedLabel: { fontSize: 17, fontWeight: "700", color: "#ffd700", flex: 1 },
+  freeBadge: {
     backgroundColor: "#14532d",
-    borderRadius: 10,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderWidth: 1,
     borderColor: "#22c55e",
   },
-  addChipsBtnText: { color: "#22c55e", fontSize: 14, fontWeight: "700" },
+  freeBadgeText: { fontSize: 11, fontWeight: "700", color: "#22c55e" },
+
+  // Current session
+  sessionSection: {
+    borderTopWidth: 1,
+    borderTopColor: "#1e3a5f",
+    paddingTop: 12,
+    gap: 4,
+  },
+  sessionTitle: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#64748b",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  sessionRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 5,
+  },
+  sessionLabel: { fontSize: 13, color: "#94a3b8" },
+  sessionValue: { fontSize: 13, fontWeight: "700", color: "#e2e8f0" },
+  noGame: {
+    fontSize: 13,
+    color: "#64748b",
+    borderTopWidth: 1,
+    borderTopColor: "#1e3a5f",
+    paddingTop: 12,
+  },
 
   // Stats
   statsCard: {
