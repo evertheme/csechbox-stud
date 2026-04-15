@@ -17,7 +17,48 @@ export interface GameRoom {
   status: GameStatus;
 }
 
+// ─── Game variant registry ────────────────────────────────────────────────────
+
+export interface GameVariant {
+  id: string;
+  /** Display name shown in the UI */
+  name: string;
+  /** Short rules description shown in the expandable info panel */
+  description: string;
+}
+
+// ─── Stakes ───────────────────────────────────────────────────────────────────
+
+export interface StakesPreset {
+  /** Formatted label, e.g. "$1/$2" */
+  label: string;
+  /** Ante per hand */
+  ante: number;
+  /** Bring-in / big-bet size (used to calculate buy-in bounds) */
+  bringIn: number;
+}
+
+export interface Stakes {
+  ante: number;
+  bringIn: number;
+}
+
+// ─── Socket payloads ──────────────────────────────────────────────────────────
+
 /** Payload emitted by the server on the "room-joined" event */
 export interface RoomJoinedPayload {
   roomId: string;
+}
+
+/** Payload emitted by the server on the "room-created" event */
+export interface RoomCreatedPayload {
+  roomId: string;
+}
+
+/** Payload the client emits on the "create-room" event */
+export interface CreateRoomPayload {
+  gameType: string;
+  stakes: Stakes;
+  maxPlayers: number;
+  buyIn: number;
 }
