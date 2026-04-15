@@ -9,9 +9,10 @@ import { connectRedis } from "./lib/redis.js";
 import { initSupabase } from "./lib/supabase.js";
 import { extractRoutes } from "./lib/routes.js";
 
-// Load the monorepo-root .env.local before any function that reads process.env
-// is called.  `override: false` means real environment variables (CI/prod) win.
-// The path works both from src/ during dev and from dist/ after tsc build.
+// Load the monorepo-root .env.local for local development.
+// `override: false` means real environment variables (CI/prod) always win.
+// `silent: false` is intentional in dev; the file simply won't exist in prod,
+// which is fine — dotenv ignores missing files when there is no throw.
 const __dir = fileURLToPath(new URL(".", import.meta.url));
 loadEnv({ path: resolve(__dir, "../../../.env.local"), override: false });
 

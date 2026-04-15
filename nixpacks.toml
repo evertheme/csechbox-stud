@@ -1,0 +1,23 @@
+# Nixpacks build config for Railway deployment.
+#
+# This is a pnpm monorepo.  We must:
+#   1. Install everything from the root so workspace symlinks are created.
+#   2. Build workspace packages in dependency order before the server.
+#   3. Start the compiled server from its dist/ output.
+
+[phases.setup]
+# Node 20 LTS matches the engines field in package.json.
+nixPkgs = ["nodejs_20", "nodePackages.pnpm"]
+
+[phases.install]
+cmds = ["pnpm install --frozen-lockfile"]
+
+[phases.build]
+cmds = [
+  "pnpm --filter @poker/shared-types build",
+  "pnpm --filter @poker/game-engine build",
+  "pnpm --filter @poker/server build"
+]
+
+[start]
+cmd = "node apps/server/dist/index.js"
