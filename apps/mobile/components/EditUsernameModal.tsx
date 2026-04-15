@@ -18,6 +18,7 @@ import {
   View,
 } from "react-native";
 import { checkUsernameAvailable } from "../lib/usernameCheck";
+import { nativeDriver } from "../utils/animation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -126,11 +127,11 @@ export function EditUsernameModal({
         toValue: 1,
         duration: 200,
         easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
+        useNativeDriver: nativeDriver,
       }),
       Animated.spring(sheetTranslateY, {
         toValue: 0,
-        useNativeDriver: true,
+        useNativeDriver: nativeDriver,
         damping: 22,
         stiffness: 220,
       }),
@@ -148,12 +149,12 @@ export function EditUsernameModal({
         Animated.timing(backdropOpacity, {
           toValue: 0,
           duration: 150,
-          useNativeDriver: true,
+          useNativeDriver: nativeDriver,
         }),
         Animated.timing(sheetTranslateY, {
           toValue: 80,
           duration: 150,
-          useNativeDriver: true,
+          useNativeDriver: nativeDriver,
         }),
       ]).start(callback);
     },

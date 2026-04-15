@@ -47,6 +47,7 @@ import { useSettingsStore } from "../../../store/settings-store";
 import { useGameStore } from "../../../store/game-store";
 import { useGameSocket } from "../../../hooks/useGameSocket";
 import { socketService } from "../../../lib/socket-service";
+import { nativeDriver } from "../../../utils/animation";
 import { getSocket } from "../../../lib/socket";
 import { GAME_REGISTRY } from "../../../lib/gameRegistry";
 
@@ -104,7 +105,7 @@ function WinnerBanner({
       toValue: 1,
       tension: 80,
       friction: 6,
-      useNativeDriver: true,
+      useNativeDriver: nativeDriver,
     }).start();
   }, [bounceAnim]);
 

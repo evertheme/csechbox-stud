@@ -11,6 +11,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { useAuth } from "../../context/AuthContext";
+import { nativeDriver } from "../../utils/animation";
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 
@@ -26,9 +27,9 @@ function Toast({ message, toastKey }: ToastProps) {
     if (!message) return;
     opacity.setValue(0);
     Animated.sequence([
-      Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: nativeDriver }),
       Animated.delay(2800),
-      Animated.timing(opacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 0, duration: 400, useNativeDriver: nativeDriver }),
     ]).start();
   }, [toastKey, message, opacity]);
 
@@ -58,14 +59,14 @@ export default function WelcomeScreen() {
       Animated.timing(fadeAnim, {
         toValue: 1,
         duration: 900,
-        useNativeDriver: true,
+        useNativeDriver: nativeDriver,
       }),
       // Slide buttons up from below
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 700,
         delay: 250,
-        useNativeDriver: true,
+        useNativeDriver: nativeDriver,
       }),
       // Pop the logo in with a spring
       Animated.spring(logoScale, {
@@ -73,7 +74,7 @@ export default function WelcomeScreen() {
         friction: 5,
         tension: 80,
         delay: 100,
-        useNativeDriver: true,
+        useNativeDriver: nativeDriver,
       }),
     ]).start();
   }, [fadeAnim, slideAnim, logoScale]);

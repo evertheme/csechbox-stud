@@ -26,6 +26,7 @@
 
 import React, { useCallback, useRef } from "react";
 import { Animated, Pressable, StyleSheet, type ViewStyle } from "react-native";
+import { nativeDriver } from "../../utils/animation";
 import Svg, {
   Circle,
   Defs,
@@ -374,7 +375,7 @@ export function Card({
       toValue: 0.93,
       tension: 300,
       friction: 10,
-      useNativeDriver: true,
+      useNativeDriver: nativeDriver,
     }).start();
   }, [scaleAnim]);
 
@@ -383,7 +384,7 @@ export function Card({
       toValue: 1,
       tension: 300,
       friction: 10,
-      useNativeDriver: true,
+      useNativeDriver: nativeDriver,
     }).start();
   }, [scaleAnim]);
 

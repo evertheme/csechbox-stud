@@ -17,6 +17,7 @@ import {
 } from "react-native";
 import { CardView } from "./CardView";
 import type { Card } from "../../types/poker";
+import { nativeDriver } from "../../utils/animation";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -64,12 +65,12 @@ export function PlayerSeat({
           Animated.timing(glowAnim, {
             toValue: 1,
             duration: 700,
-            useNativeDriver: true,
+            useNativeDriver: nativeDriver,
           }),
           Animated.timing(glowAnim, {
             toValue: 0,
             duration: 700,
-            useNativeDriver: true,
+            useNativeDriver: nativeDriver,
           }),
         ])
       );
