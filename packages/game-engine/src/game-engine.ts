@@ -96,6 +96,12 @@ export interface GameState {
   deck: Deck;
   /** The immutable game-rules configuration driving this engine. */
   rules: Readonly<GameRules>;
+  /** `Date.now()` timestamp when the current player's turn timer started, or `null`. */
+  currentTurnStartTime: number | null;
+  /** Configured seconds per turn (`0` means timer is disabled). */
+  turnTimeoutSeconds: number;
+  /** Monotonically increasing hand counter passed in via {@link GameEngineOptions}. */
+  handNumber: number;
 }
 
 /**
@@ -153,6 +159,35 @@ export interface ShowdownResult {
   }>;
 }
 
+// ─── Turn-timer event payloads ────────────────────────────────────────────────
+
+/** Payload emitted when a player's turn timer starts. */
+export interface TurnTimerStartedPayload {
+  playerId: string;
+  timeoutSeconds: number;
+  startTime: number;
+}
+
+/** Payload emitted at the 10-second warning mark. */
+export interface TurnTimerWarningPayload {
+  playerId: string;
+  secondsRemaining: number;
+}
+
+/** Payload emitted when a player fails to act before their timer expires. */
+export interface PlayerTimeoutPayload {
+  playerId: string;
+  /** Chips already committed to the pot on this street (forfeited by the fold). */
+  chipsForfeited: number;
+  potSize: number;
+  currentBet: number;
+  street: StreetName | null;
+  handNumber: number;
+  autoSitOut: boolean;
+}
+
+// ─── Options ──────────────────────────────────────────────────────────────────
+
 /** Optional settings passed to the {@link GameEngine} constructor. */
 export interface GameEngineOptions {
   /**
@@ -166,6 +201,17 @@ export interface GameEngineOptions {
    * @default 10
    */
   anteAmount?: number;
+  /**
+   * Seconds a player has to act before they are auto-folded.
+   * Set to `0` to disable the turn timer entirely.
+   * @default 40
+   */
+  turnTimeoutSeconds?: number;
+  /**
+   * Hand number to embed in {@link PlayerTimeoutPayload} for logging purposes.
+   * @default 1
+   */
+  handNumber?: number;
 }
 
 // ─── Internal player record ───────────────────────────────────────────────────
@@ -219,6 +265,9 @@ export declare interface GameEngine {
     event: "game-complete",
     listener: (result: ShowdownResult, state: GameState) => void,
   ): this;
+  on(event: "turn-timer-started",  listener: (payload: TurnTimerStartedPayload)  => void): this;
+  on(event: "turn-timer-warning",  listener: (payload: TurnTimerWarningPayload)  => void): this;
+  on(event: "player-timeout",      listener: (payload: PlayerTimeoutPayload)      => void): this;
 
   // emit overloads
   emit(event: "game-started", state: GameState): boolean;
@@ -237,6 +286,9 @@ export declare interface GameEngine {
   emit(event: "street-complete", street: StreetName): boolean;
   emit(event: "showdown", result: ShowdownResult): boolean;
   emit(event: "game-complete", result: ShowdownResult, state: GameState): boolean;
+  emit(event: "turn-timer-started",  payload: TurnTimerStartedPayload):  boolean;
+  emit(event: "turn-timer-warning",  payload: TurnTimerWarningPayload):  boolean;
+  emit(event: "player-timeout",      payload: PlayerTimeoutPayload):      boolean;
 }
 
 // ─── GameEngine ────────────────────────────────────────────────────────────────
@@ -297,6 +349,17 @@ export class GameEngine extends EventEmitter {
   private readonly lowEvaluator  = new LowHandEvaluator();
   private readonly anteAmount: number;
 
+  // ── Turn-timer state ────────────────────────────────────────────────────────
+
+  private readonly turnTimeoutSeconds: number;
+  private readonly handNumber: number;
+  private currentTurnStartTime: number | null = null;
+
+  /** Main turn timeout handle per player id. */
+  private readonly turnTimeouts  = new Map<string, NodeJS.Timeout>();
+  /** 10-second warning handle per player id. */
+  private readonly warningTimeouts = new Map<string, NodeJS.Timeout>();
+
   // ── Constructor ─────────────────────────────────────────────────────────────
 
   /**
@@ -323,6 +386,8 @@ export class GameEngine extends EventEmitter {
 
     const startingChips = options.startingChips ?? 1000;
     this.anteAmount = options.anteAmount ?? 10;
+    this.turnTimeoutSeconds = options.turnTimeoutSeconds ?? 40;
+    this.handNumber = options.handNumber ?? 1;
     this.rules = Object.freeze({ ...rules });
     this.deck  = new Deck();
 
@@ -589,6 +654,7 @@ export class GameEngine extends EventEmitter {
    * @returns A {@link ShowdownResult} describing every winner and their hand.
    */
   determineWinner(): ShowdownResult {
+    this.clearAllTimers();
     this.phase = "showdown";
 
     const active = this.players.filter((p) => !p.folded);
@@ -633,6 +699,9 @@ export class GameEngine extends EventEmitter {
       streetIndex:        this.currentStreetIdx,
       deck:               this.deck,
       rules:              this.rules,
+      currentTurnStartTime: this.currentTurnStartTime,
+      turnTimeoutSeconds:   this.turnTimeoutSeconds,
+      handNumber:           this.handNumber,
     };
   }
 
@@ -669,6 +738,116 @@ export class GameEngine extends EventEmitter {
       isYourTurn:  this.players[this.activePlayerIdx]?.id === playerId,
       currentStreet: this.currentStreet,
     };
+  }
+
+  // ── Turn-timer: public ──────────────────────────────────────────────────────
+
+  /**
+   * Release all pending timers and remove all event listeners.
+   *
+   * Call this when the server discards a `GameEngine` instance to prevent
+   * timer leaks.  After `destroy()` the instance must not be used again.
+   */
+  destroy(): void {
+    this.clearAllTimers();
+    this.removeAllListeners();
+  }
+
+  // ── Turn-timer: private ─────────────────────────────────────────────────────
+
+  /**
+   * Start a 40-second turn timer for `playerId`.
+   * Fires `turn-timer-warning` at 30 s and `player-timeout` + auto-fold at 40 s.
+   * A no-op when `turnTimeoutSeconds === 0`.
+   */
+  private startTurnTimer(playerId: string): void {
+    if (this.turnTimeoutSeconds === 0) return;
+
+    this.clearTurnTimer(playerId);
+
+    this.currentTurnStartTime = Date.now();
+
+    const warningAfterMs = (this.turnTimeoutSeconds - 10) * 1000;
+    if (warningAfterMs > 0) {
+      this.warningTimeouts.set(
+        playerId,
+        setTimeout(() => {
+          this.warningTimeouts.delete(playerId);
+          this.emit("turn-timer-warning", { playerId, secondsRemaining: 10 });
+        }, warningAfterMs),
+      );
+    }
+
+    this.turnTimeouts.set(
+      playerId,
+      setTimeout(() => {
+        this.handlePlayerTimeout(playerId);
+      }, this.turnTimeoutSeconds * 1000),
+    );
+
+    this.emit("turn-timer-started", {
+      playerId,
+      timeoutSeconds: this.turnTimeoutSeconds,
+      startTime: this.currentTurnStartTime,
+    });
+  }
+
+  /** Cancel both the warning and the main timeout for `playerId`. */
+  private clearTurnTimer(playerId: string): void {
+    const warn = this.warningTimeouts.get(playerId);
+    if (warn !== undefined) {
+      clearTimeout(warn);
+      this.warningTimeouts.delete(playerId);
+    }
+
+    const main = this.turnTimeouts.get(playerId);
+    if (main !== undefined) {
+      clearTimeout(main);
+      this.turnTimeouts.delete(playerId);
+    }
+
+    this.currentTurnStartTime = null;
+  }
+
+  /** Cancel every outstanding turn timer (called at end of each betting round). */
+  private clearAllTimers(): void {
+    for (const id of this.warningTimeouts.values()) clearTimeout(id);
+    this.warningTimeouts.clear();
+
+    for (const id of this.turnTimeouts.values()) clearTimeout(id);
+    this.turnTimeouts.clear();
+
+    this.currentTurnStartTime = null;
+  }
+
+  /**
+   * Called when the main timeout fires for `playerId`.
+   *
+   * Guards against stale callbacks: if it is no longer this player's turn or
+   * the game is not in the `"betting"` phase, the call is silently ignored.
+   */
+  private handlePlayerTimeout(playerId: string): void {
+    if (this.phase !== "betting") return;
+
+    const active = this.players[this.activePlayerIdx];
+    if (!active || active.id !== playerId) return;
+
+    const player = this.players.find((p) => p.id === playerId);
+    if (!player || player.folded || player.allIn) return;
+
+    this.emit("player-timeout", {
+      playerId,
+      chipsForfeited: player.streetBet,
+      potSize: this.players.reduce((s, p) => s + p.totalBet, 0),
+      currentBet: this.currentBet,
+      street: this.currentStreet,
+      handNumber: this.handNumber,
+      autoSitOut: true,
+    });
+
+    // fold() → advanceTurn() will clear this player's timer entry and start
+    // the next player's timer automatically.
+    this.fold(playerId);
   }
 
   // ── Private: accessors ──────────────────────────────────────────────────────
@@ -747,6 +926,11 @@ export class GameEngine extends EventEmitter {
       bettingRound?.bringIn && this.currentStreetIdx === 0
         ? this.findBringInPlayer()
         : this.nextActiveFrom(-1);
+
+    const first = this.players[this.activePlayerIdx];
+    if (first && !first.folded && !first.allIn) {
+      this.startTurnTimer(first.id);
+    }
   }
 
   /**
@@ -768,6 +952,10 @@ export class GameEngine extends EventEmitter {
    * still needs to act.
    */
   private advanceTurn(): void {
+    // Clear the timer for the player who just acted (or whose turn just ended).
+    const actedPlayer = this.players[this.activePlayerIdx];
+    if (actedPlayer) this.clearTurnTimer(actedPlayer.id);
+
     const nonFolded = this.players.filter((p) => !p.folded);
 
     // Single player remaining — pot goes to the survivor without showdown
@@ -795,6 +983,11 @@ export class GameEngine extends EventEmitter {
     }
 
     this.activePlayerIdx = idx;
+
+    const next = this.players[idx];
+    if (next && !next.folded && !next.allIn) {
+      this.startTurnTimer(next.id);
+    }
   }
 
   /**
@@ -816,6 +1009,8 @@ export class GameEngine extends EventEmitter {
    * player remains active — short-circuit directly to the showdown.
    */
   private endBettingRound(): void {
+    this.clearAllTimers();
+
     const street = this.currentStreet!;
     this.phase = "street-complete";
     this.emit("street-complete", street);

@@ -19,6 +19,9 @@ export default {
   // that the compiled output resolves correctly.  This mapper strips the ".js"
   // suffix during test runs so Jest resolves the ".ts" source instead.
   moduleNameMapper: {
+    // Resolve @poker/shared-types to its compiled dist output (workspace symlink).
+    "^@poker/shared-types$": "<rootDir>/node_modules/@poker/shared-types/dist/index.js",
+    // Strip .js extensions from relative imports so ts-jest resolves .ts source.
     "^(\\.{1,2}/.*)\\.js$": "$1",
   },
 
