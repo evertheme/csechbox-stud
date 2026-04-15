@@ -7,8 +7,7 @@ module.exports = {
   // (at .pnpm) and never reaches the inner @react-native / expo segments,
   // causing Flow-syntax files to skip Babel transformation.
   transformIgnorePatterns: [
-    "/node_modules/(?!(\\.pnpm|((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg))",
-    "/node_modules/react-native-reanimated/plugin/",
+    "/node_modules/(?!(\\.pnpm|((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|react-native-reanimated))",
   ],
 
   setupFiles: ["./jest.setup.ts"],
