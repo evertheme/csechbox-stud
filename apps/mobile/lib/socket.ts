@@ -1,51 +1,60 @@
 /**
- * Socket.io client singleton.
+ * Legacy socket helpers — thin wrappers around the new SocketService.
  *
- * A single Socket instance is shared for the entire app lifetime.
- * Individual screens attach / detach listeners as needed but should NOT call
- * disconnectSocket() unless the user signs out.
+ * Existing call-sites that import `getSocket`, `connectSocket`, or
+ * `disconnectSocket` keep working unchanged.  Prefer importing
+ * `socketService` from `./socket-service` directly in new code.
  */
 
 import { io, type Socket } from "socket.io-client";
+import { socketService } from "./socket-service";
+
+// ─── Legacy raw-socket access ─────────────────────────────────────────────────
+//
+// Some screens (e.g. GamePlayScreen) import `getSocket()` to attach
+// listeners directly.  We still expose a raw Socket reference for them,
+// but the connection lifecycle is now owned by SocketService.
 
 const SOCKET_URL =
   process.env["EXPO_PUBLIC_API_URL"] ?? "http://localhost:3001";
 
-let _socket: Socket | null = null;
+let _legacySocket: Socket | null = null;
 
-/** Return the singleton Socket, creating it lazily if necessary. */
+/** Return the legacy raw Socket singleton. Creates it lazily if needed. */
 export function getSocket(): Socket {
-  if (!_socket) {
-    _socket = io(SOCKET_URL, {
+  if (!_legacySocket) {
+    _legacySocket = io(SOCKET_URL, {
       transports: ["websocket"],
       autoConnect: false,
     });
   }
-  return _socket;
+  return _legacySocket;
 }
 
 /**
- * Connect (if not already connected) and optionally attach a bearer token
- * for server-side authentication.
+ * Connect (if not already connected) with an optional bearer token.
+ * @deprecated Use `socketService.connect(token)` instead.
  */
 export function connectSocket(token?: string | null): Socket {
   const socket = getSocket();
   if (!socket.connected) {
-    if (token) {
-      socket.auth = { token };
-    }
+    if (token) socket.auth = { token };
     socket.connect();
   }
   return socket;
 }
 
 /**
- * Disconnect and destroy the singleton so the next call to getSocket() creates
- * a fresh connection.  Call this on sign-out.
+ * Disconnect and destroy the legacy singleton.
+ * Also disconnects the SocketService so the two stay in sync.
+ * @deprecated Use `socketService.disconnect()` instead.
  */
 export function disconnectSocket(): void {
-  if (_socket) {
-    _socket.disconnect();
-    _socket = null;
+  if (_legacySocket) {
+    _legacySocket.disconnect();
+    _legacySocket = null;
   }
+  socketService.disconnect();
 }
+
+export { socketService };

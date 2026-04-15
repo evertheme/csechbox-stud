@@ -21,6 +21,8 @@ module.exports = {
   moduleNameMapper: {
     // Silence static asset imports that aren't relevant for logic tests.
     "\\.(png|jpg|jpeg|gif|svg|webp)$": "<rootDir>/__mocks__/fileMock.js",
+    // Resolve workspace packages that pnpm symlinks outside the Jest root.
+    "^@poker/shared-types$": "<rootDir>/../../packages/shared-types/src/index.ts",
   },
 
   collectCoverageFrom: [
