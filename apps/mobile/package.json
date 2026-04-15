@@ -22,6 +22,7 @@
     "@poker/ui": "workspace:*",
     "@supabase/supabase-js": "^2.103.0",
     "expo": "~52.0.28",
+    "expo-image-picker": "^55.0.18",
     "expo-linear-gradient": "~14.0.2",
     "expo-local-authentication": "^55.0.13",
     "expo-router": "~4.0.17",

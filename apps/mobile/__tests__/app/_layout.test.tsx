@@ -84,10 +84,13 @@ describe("RootLayout — splash / loading state", () => {
     expect(screen.getByTestId("splash-indicator")).toBeTruthy();
   });
 
-  it("does NOT show the slot while isLoading is true", () => {
+  it("shows the slot AND the splash screen simultaneously while isLoading is true", () => {
+    // Slot is always rendered so Expo Router's navigator is mounted.
+    // The splash screen overlays it — both coexist while loading.
     setupStore(true);
     render(<RootLayout />);
-    expect(screen.queryByTestId("slot")).toBeNull();
+    expect(screen.getByTestId("splash-screen")).toBeTruthy();
+    expect(screen.getByTestId("slot")).toBeTruthy();
   });
 
   it("hides the splash screen once isLoading is false", () => {
