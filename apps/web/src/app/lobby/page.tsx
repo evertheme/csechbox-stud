@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-export const metadata: Metadata = { title: "Lobby | CSechBox Poker" };
+export const metadata: Metadata = { title: "Lobby | CsechBox Poker" };
 
 export default function LobbyPage() {
   return (

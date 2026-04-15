@@ -1,19 +1,21 @@
-# CSechBox — Poker Monorepo
+# CsechBox — Poker Monorepo
 
 A full-stack multiplayer poker platform built as a Turborepo monorepo with **pnpm workspaces**.
 
 ## Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Web app | Next.js 15 + React Native Web |
-| Mobile app | React Native + Expo (expo-router) |
-| Backend | Node.js + Express + Socket.IO |
-| Game logic | Pure TypeScript (no runtime deps) |
-| Shared types | TypeScript-only package |
-| Shared UI | React Native components (web + mobile) |
-| Build system | Turborepo |
-| Package manager | pnpm workspaces |
+
+| Layer           | Technology                             |
+| --------------- | -------------------------------------- |
+| Web app         | Next.js 15 + React Native Web          |
+| Mobile app      | React Native + Expo (expo-router)      |
+| Backend         | Node.js + Express + Socket.IO          |
+| Game logic      | Pure TypeScript (no runtime deps)      |
+| Shared types    | TypeScript-only package                |
+| Shared UI       | React Native components (web + mobile) |
+| Build system    | Turborepo                              |
+| Package manager | pnpm workspaces                        |
+
 
 ## Monorepo Structure
 
@@ -69,12 +71,14 @@ pnpm test
 
 Copy `.env.example` → `.env` in each app:
 
-| App | Variable | Default |
-|-----|----------|---------|
-| `apps/server` | `PORT` | `3001` |
-| `apps/server` | `CLIENT_ORIGIN` | `*` |
-| `apps/web` | `NEXT_PUBLIC_SERVER_URL` | `http://localhost:3001` |
+
+| App           | Variable                 | Default                 |
+| ------------- | ------------------------ | ----------------------- |
+| `apps/server` | `PORT`                   | `3001`                  |
+| `apps/server` | `CLIENT_ORIGIN`          | `*`                     |
+| `apps/web`    | `NEXT_PUBLIC_SERVER_URL` | `http://localhost:3001` |
 | `apps/mobile` | `EXPO_PUBLIC_SERVER_URL` | `http://localhost:3001` |
+
 
 ## TypeScript Project References
 
@@ -87,3 +91,4 @@ Every package and app participates in TypeScript project references for incremen
 - `apps/server` → `shared-types`, `game-engine`
 - `apps/web` → `shared-types`, `ui`
 - `apps/mobile` → `shared-types`, `ui`
+

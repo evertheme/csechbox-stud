@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CSechBox Poker",
+  title: "CsechBox Poker",
   description: "Online multiplayer poker",
 };
 
