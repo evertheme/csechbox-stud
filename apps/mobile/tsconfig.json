@@ -4,13 +4,24 @@
     "rootDir": ".",
     "noEmit": true,
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     }
   },
   "references": [
-    { "path": "../../packages/shared-types" },
-    { "path": "../../packages/ui" }
+    {
+      "path": "../../packages/shared-types"
+    },
+    {
+      "path": "../../packages/ui"
+    }
   ],
-  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

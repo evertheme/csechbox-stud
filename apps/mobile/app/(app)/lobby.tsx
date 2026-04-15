@@ -114,7 +114,7 @@ function LobbyHeader({ username, chips, onSignOut }: LobbyHeaderProps) {
           onPress={onSignOut}
           testID="btn-logout"
         >
-          <Text style={styles.logoutIcon}>⏻</Text>
+          <Text style={styles.logoutIcon}>Sign Out</Text>
         </Pressable>
       </View>
     </View>
@@ -321,8 +321,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   iconBtnIcon: { fontSize: 16 },
-  logoutBtn: { backgroundColor: "#1e0f0f" },
-  logoutIcon: { fontSize: 16, color: "#f87171" },
+  logoutBtn: { backgroundColor: "#1e0f0f", width: "auto", paddingHorizontal: 12 },
+  logoutIcon: { fontSize: 13, color: "#f87171", fontWeight: "700" },
 
   // Section
   sectionRow: {

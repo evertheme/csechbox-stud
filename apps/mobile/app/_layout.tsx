@@ -50,7 +50,10 @@ export default function RootLayout() {
     <>
       <StatusBar style="light" />
       <AuthProvider>
-        {isLoading ? <SplashScreen /> : <Slot />}
+        {/* Slot must always be rendered so Expo Router's navigator is mounted.
+            The splash screen overlays it while the initial session loads. */}
+        <Slot />
+        {isLoading && <SplashScreen />}
       </AuthProvider>
     </>
   );
@@ -60,9 +63,10 @@ export default function RootLayout() {
 
 const styles = StyleSheet.create({
   splash: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "#1a1a2e",
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 999,
   },
 });
