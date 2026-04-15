@@ -100,8 +100,14 @@ export type {
   WinnerEntry,
   /** Full showdown result: all winners and all evaluated hands. */
   ShowdownResult,
-  /** Constructor options for GameEngine: startingChips, anteAmount. */
+  /** Constructor options for GameEngine: startingChips, anteAmount, turnTimeoutSeconds, handNumber. */
   GameEngineOptions,
+  /** Payload emitted with the "turn-timer-started" event. */
+  TurnTimerStartedPayload,
+  /** Payload emitted with the "turn-timer-warning" event. */
+  TurnTimerWarningPayload,
+  /** Payload emitted with the "player-timeout" event (auto-fold). */
+  PlayerTimeoutPayload,
 } from "./game-engine.js";
 
 // ─── Game rules — types & enums ───────────────────────────────────────────────

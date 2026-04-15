@@ -36,9 +36,12 @@ import type {
   SocketData,
   WaitingRoomCreateConfig,
 } from "@poker/shared-types";
+import { GameEngine, GAME_REGISTRY } from "@poker/game-engine";
+import type { GameType } from "@poker/game-engine";
 import { GameRoomManager } from "../../game/game-room-manager.js";
 import { getSupabase } from "../../lib/supabase.js";
 import { logger } from "../../lib/logger.js";
+import { setupGameEngineListeners } from "./game-handler.js";
 
 type IoServer = Server<
   ClientToServerEvents,
@@ -52,6 +55,31 @@ type IoSocket = Socket<
   InterServerEvents,
   SocketData
 >;
+
+// ─── Game-type helpers ────────────────────────────────────────────────────────
+
+/**
+ * Map the string stored in `WaitingRoom.gameType` (sent from the client) to a
+ * `GameRules` object from the game-engine registry.
+ *
+ * Falls back to Five-Card Stud so the engine always has a valid rule set even
+ * when an unrecognised ID slips through.
+ */
+const KNOWN_GAME_TYPES = new Set<string>([
+  "five-card-stud",
+  "five-card-stud-low",
+  "five-card-stud-high-low",
+  "seven-card-stud",
+  "razz",
+  "seven-card-stud-high-low",
+]);
+
+function gameTypeToRules(gameType: string) {
+  const id: GameType = KNOWN_GAME_TYPES.has(gameType)
+    ? (gameType as GameType)
+    : "five-card-stud";
+  return GAME_REGISTRY[id];
+}
 
 // ─── Config validation ────────────────────────────────────────────────────────
 
@@ -338,10 +366,31 @@ export function registerWaitingRoomHandlers(
     }
 
     manager.setStatus(roomId, "playing");
+    manager.incrementHandNumber(roomId);
+
+    // ── Create and start the GameEngine for the first hand ──────────────────
+
+    const rules = gameTypeToRules(room.gameType);
+    const playerIds = room.players.map((p) => p.userId);
+
+    const engine = new GameEngine(rules, playerIds, {
+      startingChips: room.startingBuyIn,
+      // Ante is the fixed $1 bring-in for all game variants.
+      anteAmount: rules.anteRequired ? 1 : 0,
+      turnTimeoutSeconds: 40,
+      handNumber: room.currentHandNumber,
+    });
+
+    manager.setGameEngine(roomId, engine);
+    setupGameEngineListeners(roomId, engine, io, manager);
+
+    engine.start();
+    engine.dealCards();
+
     io.to(roomId).emit("game-started", { roomId });
 
     logger.info(
-      `Game started in room ${roomId} by host ${authedUser?.username ?? userId}.`,
+      `Game started in room ${roomId} by host ${authedUser?.username ?? userId} (${room.gameType}, hand #${room.currentHandNumber}).`,
     );
   });
 

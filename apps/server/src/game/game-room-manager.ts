@@ -1,11 +1,28 @@
 import { v4 as uuidv4 } from "uuid";
 import type { WaitingPlayerSnapshot, WaitingRoomSnapshot } from "@poker/shared-types";
+import type { GameEngine } from "@poker/game-engine";
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 
 export interface WaitingPlayer extends WaitingPlayerSnapshot {
   socketId: string;
   isHost: boolean;
+
+  // ── Session runtime state ──────────────────────────────────────────────────
+  /** Total chips invested this session (initial buy-in + rebuys). Defaults to `chips`. */
+  totalBuyIn?: number;
+  /** Flagged during a hand when the player timed out; processed after hand ends. */
+  pendingSitOut?: boolean;
+  /** True once the player has been officially sat out between hands. */
+  isSittingOut?: boolean;
+  /** When the player was sat out. */
+  satOutAt?: Date;
+  /** Hand number at the time the player was sat out. */
+  handNumberWhenSatOut?: number;
+  /** Chip count when the player was sat out. */
+  chipsWhenSatOut?: number;
+  /** Why the player was sat out. */
+  sitOutReason?: "timeout" | "player_choice";
 }
 
 export interface WaitingRoomConfig {
@@ -31,6 +48,8 @@ export interface WaitingRoom {
   players: WaitingPlayer[];
   status: "waiting" | "playing" | "finished";
   createdAt: Date;
+  /** Monotonically increasing hand counter — incremented before each new hand. */
+  currentHandNumber: number;
 }
 
 export type AddPlayerArgs = Omit<WaitingPlayer, "seatIndex">;
@@ -59,6 +78,8 @@ export class GameRoomManager {
   private rooms = new Map<string, WaitingRoom>();
   /** Fast lookup: socket ID → room ID (for disconnect handling). */
   private socketToRoom = new Map<string, string>();
+  /** Active GameEngine instances, one per room that is currently in a hand. */
+  private gameEngines = new Map<string, GameEngine>();
 
   static getInstance(): GameRoomManager {
     if (!GameRoomManager._instance) {
@@ -85,6 +106,7 @@ export class GameRoomManager {
       players: [],
       status: "waiting",
       createdAt: new Date(),
+      currentHandNumber: 0,
     };
     this.rooms.set(id, room);
     return room;
@@ -102,6 +124,7 @@ export class GameRoomManager {
       }
     }
     this.rooms.delete(roomId);
+    this.removeGameEngine(roomId);
   }
 
   setStatus(roomId: string, status: WaitingRoom["status"]): void {
@@ -120,7 +143,13 @@ export class GameRoomManager {
     if (!room || room.players.length >= room.maxPlayers) return null;
 
     const seatIndex = this._nextFreeSeat(room);
-    const player: WaitingPlayer = { ...args, seatIndex };
+    const player: WaitingPlayer = {
+      ...args,
+      seatIndex,
+      totalBuyIn: args.totalBuyIn ?? args.chips,
+      pendingSitOut: args.pendingSitOut ?? false,
+      isSittingOut: args.isSittingOut ?? false,
+    };
 
     room.players.push(player);
     this.socketToRoom.set(args.socketId, roomId);
@@ -198,6 +227,41 @@ export class GameRoomManager {
     return (
       this.rooms.get(roomId)?.players.some((p) => p.userId === userId) ?? false
     );
+  }
+
+  // ── Game-engine storage ────────────────────────────────────────────────────
+
+  /** Store an active game engine for a room (called when a hand starts). */
+  setGameEngine(roomId: string, engine: GameEngine): void {
+    this.gameEngines.set(roomId, engine);
+  }
+
+  /** Retrieve the active engine for a room, or `undefined` if none. */
+  getGameEngine(roomId: string): GameEngine | undefined {
+    return this.gameEngines.get(roomId);
+  }
+
+  /**
+   * Destroy and remove the engine for a room (called when a hand ends or the
+   * game session closes).  Safe to call when no engine exists.
+   */
+  removeGameEngine(roomId: string): void {
+    const engine = this.gameEngines.get(roomId);
+    if (engine) {
+      engine.destroy();
+      this.gameEngines.delete(roomId);
+    }
+  }
+
+  /**
+   * Increment the hand counter for a room and return the new value.
+   * Used to stamp timeout and sit-out records with the correct hand number.
+   */
+  incrementHandNumber(roomId: string): number {
+    const room = this.rooms.get(roomId);
+    if (!room) return 0;
+    room.currentHandNumber += 1;
+    return room.currentHandNumber;
   }
 
   // ── Snapshot ──────────────────────────────────────────────────────────────
