@@ -15,7 +15,7 @@ export async function fetchGames(token?: string | null): Promise<GameRoom[]> {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_URL}/api/games`, { headers });
+  const response = await fetch(`${API_URL}/api/rooms`, { headers });
 
   if (!response.ok) {
     throw new Error(`Failed to fetch games (${response.status})`);

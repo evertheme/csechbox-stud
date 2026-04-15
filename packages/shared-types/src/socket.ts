@@ -2,11 +2,24 @@ import type { BettingActionPayload, GamePhase } from "./poker.js";
 import type { GameState, GameRoom } from "./game.js";
 import type { Player, PlayerPublic } from "./player.js";
 
+export interface CreateRoomOptions {
+  /** Human-readable room name shown in the lobby. */
+  name: string;
+  /** Maximum number of seats at the table (2–8). */
+  maxPlayers?: number;
+  /** Small blind / ante amount. */
+  smallBlind?: number;
+  /** Big blind / bring-in amount. */
+  bigBlind?: number;
+  /** Minimum buy-in chips required to join. */
+  minBuyIn?: number;
+}
+
 // Events emitted from client → server
 export interface ClientToServerEvents {
   "room:join": (roomId: string, callback: (state: GameState | null) => void) => void;
   "room:leave": (roomId: string) => void;
-  "room:create": (name: string, callback: (room: GameRoom) => void) => void;
+  "room:create": (options: CreateRoomOptions, callback: (room: GameRoom) => void) => void;
   "game:action": (payload: BettingActionPayload) => void;
   "game:start": () => void;
   "player:ready": () => void;

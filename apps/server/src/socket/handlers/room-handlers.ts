@@ -11,9 +11,15 @@ type IoServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEv
 type IoSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
 export function registerRoomHandlers(io: IoServer, socket: IoSocket) {
-  socket.on("room:create", (name, callback) => {
+  socket.on("room:create", (options, callback) => {
     try {
-      const room = roomStore.createRoom(name);
+      const { name, maxPlayers, smallBlind, bigBlind, minBuyIn } = options;
+      const room = roomStore.createRoom(name, {
+        ...(maxPlayers  !== undefined && { maxPlayers }),
+        ...(smallBlind  !== undefined && { smallBlind }),
+        ...(bigBlind    !== undefined && { bigBlind }),
+        ...(minBuyIn    !== undefined && { minBuyIn }),
+      });
       callback(room);
       io.emit("room:list", roomStore.listRooms());
     } catch (err) {

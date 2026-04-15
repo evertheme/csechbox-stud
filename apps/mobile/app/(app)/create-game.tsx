@@ -14,11 +14,7 @@ import { router, Stack } from "expo-router";
 import { useAuthStore } from "../../store/auth-store";
 import { getSocket } from "../../lib/socket";
 import { GAME_REGISTRY, STAKES_PRESETS } from "../../lib/gameRegistry";
-import type {
-  CreateRoomPayload,
-  RoomCreatedPayload,
-  StakesPreset,
-} from "../../types/game";
+import type { StakesPreset } from "../../types/game";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -135,31 +131,10 @@ export default function CreateGameScreen() {
     return null;
   };
 
-  // ── Socket listeners ───────────────────────────────────────────────────────
+  // ── Cleanup on unmount ─────────────────────────────────────────────────────
 
   useEffect(() => {
-    const socket = getSocket();
-
-    const onRoomCreated = ({ roomId }: RoomCreatedPayload) => {
-      clearTimeout(timeoutRef.current);
-      setSubmitting(false);
-      router.replace(`/(app)/game/${roomId}`);
-    };
-
-    const onCreateRoomError = (payload: { message?: string }) => {
-      clearTimeout(timeoutRef.current);
-      setSubmitting(false);
-      setError(payload?.message ?? "Failed to create room. Please try again.");
-    };
-
-    socket.on("room-created", onRoomCreated);
-    socket.on("create-room-error", onCreateRoomError);
-
-    return () => {
-      socket.off("room-created", onRoomCreated);
-      socket.off("create-room-error", onCreateRoomError);
-      clearTimeout(timeoutRef.current);
-    };
+    return () => clearTimeout(timeoutRef.current);
   }, []);
 
   // ── Submit ─────────────────────────────────────────────────────────────────
@@ -174,22 +149,25 @@ export default function CreateGameScreen() {
     setError(null);
     setSubmitting(true);
 
-    const payload: CreateRoomPayload = {
-      gameType: gameTypeId,
-      stakes: {
-        ante: effectiveStakes.ante,
-        bringIn: effectiveStakes.bringIn,
-      },
-      maxPlayers,
-      buyIn: parseFloat(buyIn),
-    };
-
-    getSocket().emit("create-room", payload);
+    const gameVariant = GAME_REGISTRY.find((g) => g.id === gameTypeId);
+    const roomName = `${gameVariant?.name ?? gameTypeId} · ${effectiveStakes.label}`;
 
     timeoutRef.current = setTimeout(() => {
       setSubmitting(false);
       setError("Server did not respond. Please try again.");
     }, ROOM_CREATE_TIMEOUT_MS);
+
+    getSocket().emit("room:create", {
+      name: roomName,
+      maxPlayers,
+      smallBlind: effectiveStakes.ante,
+      bigBlind:   effectiveStakes.bringIn,
+      minBuyIn:   parseFloat(buyIn),
+    }, (room) => {
+      clearTimeout(timeoutRef.current);
+      setSubmitting(false);
+      router.replace(`/(app)/game/${room.id}`);
+    });
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
